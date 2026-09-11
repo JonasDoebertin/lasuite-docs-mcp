@@ -12,7 +12,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:contract": "vitest run --config vitest.contract.config.ts",
-    "vendor": "bash scripts/vendor-blockspecs.sh"
+    "vendor": "bash scripts/vendor-blockspecs.sh",
+    "check:drift": "bash scripts/check-drift.sh"
   },
   "dependencies": {
     "@blocknote/core": "0.54.0",

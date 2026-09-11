@@ -1,0 +1,39 @@
+name: contract
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'src/content/**'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check whether instance secrets are configured
+        id: secrets
+        env:
+          DOCS_URL: ${{ secrets.DOCS_URL }}
+        run: echo "available=${DOCS_URL:+yes}" >> "$GITHUB_OUTPUT"
+
+      - if: steps.secrets.outputs.available != 'yes'
+        run: echo "No instance configured; skipping the contract suite."
+
+      - if: steps.secrets.outputs.available == 'yes'
+        run: npm ci
+
+      - if: steps.secrets.outputs.available == 'yes'
+        run: npm run test:contract
+        env:
+          DOCS_URL: ${{ secrets.DOCS_URL }}
+          DOCS_OIDC_ISSUER: ${{ secrets.DOCS_OIDC_ISSUER }}
+          DOCS_OIDC_CLIENT_ID: ${{ secrets.DOCS_OIDC_CLIENT_ID }}
