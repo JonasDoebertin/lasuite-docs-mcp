@@ -25,8 +25,22 @@ jobs:
           DOCS_URL: ${{ secrets.DOCS_URL }}
         run: echo "available=${DOCS_URL:+yes}" >> "$GITHUB_OUTPUT"
 
-      - if: steps.secrets.outputs.available != 'yes'
-        run: echo "No instance configured; skipping the contract suite."
+      # A fork pull request never has access to repository secrets, and that
+      # is expected -- it must keep passing so the check doesn't block every
+      # external contribution. A scheduled or manually dispatched run with no
+      # secrets configured is a different situation entirely: the contract
+      # suite is the only guard against schema drift between the vendored
+      # block specs and a real Docs instance, and "it silently didn't run"
+      # must never render the same green check as "it ran and passed".
+      - name: Fail loudly when a non-PR run has no instance to test against
+        if: steps.secrets.outputs.available != 'yes' && github.event_name != 'pull_request'
+        run: |
+          echo "::warning::The contract suite did not run: no DOCS_URL secret is configured for this ${{ github.event_name }} run. This is the sole guard against schema drift and must not be mistaken for a passing run."
+          exit 1
+
+      - name: Skip without failing a pull request that cannot see repository secrets
+        if: steps.secrets.outputs.available != 'yes' && github.event_name == 'pull_request'
+        run: echo "No instance configured (expected on a fork pull request); skipping the contract suite."
 
       - if: steps.secrets.outputs.available == 'yes'
         run: npm ci

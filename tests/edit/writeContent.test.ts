@@ -6,6 +6,7 @@ import {
 } from '../../src/edit/writeContent.js';
 import { DocsClient } from '../../src/api/client.js';
 import { yjsBase64ToBlocks } from '../../src/content/convert.js';
+import { ConversionError } from '../../src/edit/conversion.js';
 
 function stubClient() {
   const client = new DocsClient(async () => new Response('{}', { status: 200 }));
@@ -81,5 +82,29 @@ describe('createDocumentFromMarkdown', () => {
     expect(error.message).toContain('new-id');
     expect(error.message).toContain('Docs is rate limiting this client.');
     expect(error.cause).toBe(writeFailure);
+    expect(error.message).toContain('retry writing content against id new-id');
+  });
+
+});
+
+describe('ContentWriteAfterCreateError', () => {
+  it('tells the caller retrying will fail identically for a conversion failure', () => {
+    const error = new ContentWriteAfterCreateError(
+      'new-id',
+      'Notes',
+      new ConversionError('Failed to convert blocks.', new Error('boom')),
+    );
+
+    // A conversion failure is deterministic: retrying the identical write
+    // would fail the same way again, unlike a transient failure such as a
+    // rate limit, so the advice must not repeat the generic "retry" line.
+    expect(error.message).toContain('not a transient one');
+    expect(error.message).not.toContain('retry writing content against id');
+  });
+
+  it('suggests retrying the write for an ordinary, non-conversion failure', () => {
+    const error = new ContentWriteAfterCreateError('new-id', 'Notes', new Error('network blip'));
+
+    expect(error.message).toContain('retry writing content against id new-id');
   });
 });

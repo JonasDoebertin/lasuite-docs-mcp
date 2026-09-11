@@ -4,12 +4,14 @@
   "type": "module",
   "license": "MIT",
   "engines": { "node": ">=22" },
+  "files": ["dist"],
   "bin": {
     "lasuite-docs-mcp": "./dist/cli.js",
     "lasuite-docs-mcp-server": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:contract": "vitest run --config vitest.contract.config.ts",
     "vendor": "bash scripts/vendor-blockspecs.sh",

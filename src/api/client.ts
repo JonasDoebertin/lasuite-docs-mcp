@@ -110,12 +110,20 @@ export class DocsClient {
     try {
       response = await this.request(path, init);
     } catch (cause) {
+      // The authenticated fetch itself already classifies its own failures
+      // (a request timeout, for instance, arrives as a DocsApiError with a
+      // complete message). Wrapping that again here would double the
+      // message: "Network error while contacting Docs: Docs did not respond
+      // within 30 seconds." Only wrap a cause that isn't already classified.
       return {
         ok: false,
-        error: new DocsApiError(
-          'network',
-          `Network error while contacting Docs: ${describeCause(cause)}`,
-        ),
+        error:
+          cause instanceof DocsApiError
+            ? cause
+            : new DocsApiError(
+                'network',
+                `Network error while contacting Docs: ${describeCause(cause)}`,
+              ),
       };
     }
 

@@ -93,7 +93,7 @@ you.
 
 ## Tools
 
-- **docs_search** — full-text search across the instance; returns id, title, path, and an excerpt.
+- **docs_search** — full-text search across the instance; returns id, title, and path.
 - **docs_list** — browse by recency, favorites, or documents you created, without a search query.
 - **docs_tree** — a document's ancestors and children, to orient in a wiki without reading content.
 - **docs_read** — a document's content as markdown; large documents return a section outline instead of truncating.

@@ -8,6 +8,7 @@ import {
 } from '../../src/edit/editDocument.js';
 import { DocsClient } from '../../src/api/client.js';
 import { blocksToYjsBase64, yjsBase64ToBlocks } from '../../src/content/convert.js';
+import { ConversionError } from '../../src/edit/conversion.js';
 
 const heading = (level: number, text: string) => ({
   type: 'heading',
@@ -192,6 +193,17 @@ describe('editDocument', () => {
     await expect(
       editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
     ).rejects.toThrow(UnreadableDocumentError);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a schema-drift write failure as a classified ConversionError', async () => {
+    const { client, patch } = stubClient({
+      blocks: [{ type: 'aBlockTypeThatDoesNotExist' }],
+    });
+
+    await expect(
+      editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
+    ).rejects.toThrow(ConversionError);
     expect(patch).not.toHaveBeenCalled();
   });
 

@@ -9,7 +9,8 @@ export function renderDocumentList(documents: DocumentSummary[]): string {
   return documents
     .map((document) => {
       const updated = document.updatedAt ? ` (updated ${document.updatedAt})` : '';
-      return `- ${document.title}${updated}\n  id: ${document.id}`;
+      const path = document.path ? `\n  path: ${document.path}` : '';
+      return `- ${document.title}${updated}\n  id: ${document.id}${path}`;
     })
     .join('\n');
 }

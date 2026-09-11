@@ -129,6 +129,30 @@ describe('DocsClient', () => {
     expect(calls[0]?.path).toBe('documents/');
   });
 
+  it('passes through an already-classified error from the authenticated fetch unwrapped', async () => {
+    const client = new DocsClient(async () => {
+      throw new DocsApiError('network', 'Docs did not respond within 30 seconds.');
+    }, async () => {});
+
+    // Wrapping this again would double the message into "Network error
+    // while contacting Docs: Docs did not respond within 30 seconds.",
+    // which says nothing more useful and hides the original error's kind.
+    await expect(client.getDocument('1')).rejects.toThrow(
+      'Docs did not respond within 30 seconds.',
+    );
+    await expect(client.getDocument('1')).rejects.not.toThrow(/Network error while contacting/);
+  });
+
+  it('wraps a non-classified request failure as a network error', async () => {
+    const client = new DocsClient(async () => {
+      throw new Error('socket hang up');
+    }, async () => {});
+
+    await expect(client.getDocument('1')).rejects.toThrow(
+      'Network error while contacting Docs: socket hang up',
+    );
+  });
+
   it('raises a classified error for a failed request', async () => {
     const { client } = clientWith(() => new Response('', { status: 404 }));
 

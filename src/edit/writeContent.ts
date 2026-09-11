@@ -1,14 +1,14 @@
 import type { DocsClient } from '../api/client.js';
 import type { DocumentSummary } from '../api/types.js';
-import { blocksToYjsBase64, markdownToBlocks } from '../content/convert.js';
 import type { DocsBlock } from '../content/types.js';
+import { ConversionError, convertBlocksToYjsBase64, convertMarkdownToBlocks } from './conversion.js';
 
 export async function writeBlocks(
   client: DocsClient,
   id: string,
   blocks: DocsBlock[],
 ): Promise<void> {
-  await client.patchContent(id, blocksToYjsBase64(blocks));
+  await client.patchContent(id, convertBlocksToYjsBase64(blocks));
 }
 
 function describeCause(cause: unknown): string {
@@ -26,10 +26,22 @@ export class ContentWriteAfterCreateError extends Error {
   readonly documentTitle: string;
 
   constructor(documentId: string, documentTitle: string, cause: unknown) {
+    // A conversion failure is deterministic: retrying the same write against
+    // the same id fails identically until the schema drift is fixed, so
+    // telling the caller to retry would be actively misleading. Only a
+    // failure elsewhere in the write (a transient network error, a rejected
+    // PATCH) is worth retrying.
+    const retryAdvice =
+      cause instanceof ConversionError
+        ? `This is a conversion failure, not a transient one -- retrying the write ` +
+          `against id ${documentId} will fail identically until the schema drift ` +
+          'is fixed.'
+        : `The document exists and is empty; retry writing content against id ` +
+          `${documentId} rather than creating it again.`;
+
     super(
       `Created "${documentTitle}" (id: ${documentId}) but failed to write its content: ` +
-        `${describeCause(cause)}. The document exists and is empty; retry writing content ` +
-        `against id ${documentId} rather than creating it again.`,
+        `${describeCause(cause)}. ${retryAdvice}`,
       { cause },
     );
     this.name = 'ContentWriteAfterCreateError';
@@ -46,7 +58,7 @@ export async function createDocumentFromMarkdown(
 
   if (params.markdown.trim().length > 0) {
     try {
-      await writeBlocks(client, summary.id, await markdownToBlocks(params.markdown));
+      await writeBlocks(client, summary.id, await convertMarkdownToBlocks(params.markdown));
     } catch (cause) {
       throw new ContentWriteAfterCreateError(summary.id, summary.title, cause);
     }

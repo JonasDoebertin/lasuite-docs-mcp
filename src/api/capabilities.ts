@@ -49,9 +49,48 @@ function actionWorks(error: unknown): boolean {
   return true;
 }
 
+// An ordinary request tolerates up to MAX_ATTEMPTS * REQUEST_TIMEOUT_MS
+// (3 * 30s = 90s) before giving up on a hung connection. This probe runs
+// before a stdio MCP server can answer its client's `initialize` handshake,
+// and four of these run per startup -- 90s per probe is not a cost this
+// path can afford. 5s is short enough to keep a hung instance from stalling
+// the handshake noticeably, and generous next to the latency any working
+// instance actually needs to answer a page_size=1 list or a 404 lookup.
+//
+// This races the probe rather than cancelling it: DocsClient's public
+// methods don't accept a caller-supplied AbortSignal, so the underlying
+// request (and any retries it's mid-flight on) keeps running in the
+// background and its result is simply discarded. That is an acceptable
+// trade for not stalling startup -- a timed-out probe is treated the same
+// as any other ambiguous, non-403 failure below: assumed to work.
+export const PROBE_TIMEOUT_MS = 5_000;
+
+class ProbeTimeoutError extends Error {
+  constructor() {
+    super('Capability probe timed out.');
+    this.name = 'ProbeTimeoutError';
+  }
+}
+
+function withProbeTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new ProbeTimeoutError()), PROBE_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function probe(run: () => Promise<unknown>): Promise<boolean> {
   try {
-    await run();
+    await withProbeTimeout(run());
     return true;
   } catch (error) {
     return actionWorks(error);

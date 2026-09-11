@@ -14,6 +14,18 @@ describe('renderDocumentList', () => {
   it('says so plainly when there are no results', () => {
     expect(renderDocumentList([])).toBe('No documents matched.');
   });
+
+  it('includes the path when the document has one', () => {
+    const output = renderDocumentList([{ id: 'abc', title: 'Spec', path: '/root/spec' }]);
+
+    expect(output).toContain('path: /root/spec');
+  });
+
+  it('omits the path line entirely when the document has none', () => {
+    const output = renderDocumentList([{ id: 'abc', title: 'Spec' }]);
+
+    expect(output).not.toContain('path:');
+  });
 });
 
 describe('renderTree', () => {

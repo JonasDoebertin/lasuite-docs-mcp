@@ -1,8 +1,8 @@
 import type { DocsClient } from '../api/client.js';
-import { markdownToBlocks } from '../content/convert.js';
 import { detectLossyBlocks, type LossyFinding } from '../content/lossy.js';
 import { spliceBlocks, type SpliceOperation } from '../content/splice.js';
 import type { DocsBlock } from '../content/types.js';
+import { convertMarkdownToBlocks } from './conversion.js';
 import { writeBlocks } from './writeContent.js';
 
 export class DocumentLockedError extends Error {
@@ -107,7 +107,7 @@ export async function editDocument(
     throw new UnreadableDocumentError();
   }
 
-  const incoming = await markdownToBlocks(params.markdown);
+  const incoming = await convertMarkdownToBlocks(params.markdown);
   const { blocks, discarded } = spliceBlocks(
     existing,
     incoming,

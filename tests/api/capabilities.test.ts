@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { probeCapabilities } from '../../src/api/capabilities.js';
+import { PROBE_TIMEOUT_MS, probeCapabilities } from '../../src/api/capabilities.js';
 import { DocsClient } from '../../src/api/client.js';
 import { DocsApiError } from '../../src/api/errors.js';
 
@@ -116,5 +116,27 @@ describe('probeCapabilities', () => {
 
     expect(capabilities.enabled.has('search')).toBe(true);
     expect(capabilities.enabled.has('formatted_content')).toBe(true);
+  });
+
+  it('does not let a hung probe stall startup past its timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const client = clientWhere(new Set());
+      // Simulate an instance that accepts the connection but never answers:
+      // a promise that never settles, standing in for a hung request that
+      // DocsClient's own 30s-times-3-attempts timeout hasn't caught yet.
+      vi.spyOn(client, 'listDocuments').mockReturnValue(new Promise(() => {}));
+
+      const pending = probeCapabilities(client);
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
+      const capabilities = await pending;
+
+      // Only a documented 403 may disable a tool -- a timeout is exactly
+      // the ambiguous, non-403 case that gets assumed to work.
+      expect(capabilities.enabled.has('list')).toBe(true);
+      expect(capabilities.probed.list).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
