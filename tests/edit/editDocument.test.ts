@@ -141,4 +141,26 @@ describe('editDocument', () => {
       }),
     ).rejects.toThrow(/One, Two/);
   });
+
+  it('writes through and reports the staleness check as unavailable when the instance sends no ETag', async () => {
+    const { client, patch } = stubClient({ etags: [] });
+
+    const result = await editDocument(client, {
+      id: '1',
+      operation: 'append',
+      markdown: 'tail',
+    });
+
+    expect(patch).toHaveBeenCalled();
+    expect(result.staleCheckPerformed).toBe(false);
+  });
+
+  it('still aborts on a moved ETag when both reads return a real value', async () => {
+    const { client, patch } = stubClient({ etags: ['"v1"', '"v2"'] });
+
+    await expect(
+      editDocument(client, { id: '1', operation: 'append', markdown: 'x' }),
+    ).rejects.toThrow(StaleDocumentError);
+    expect(patch).not.toHaveBeenCalled();
+  });
 });

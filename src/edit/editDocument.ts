@@ -43,6 +43,12 @@ export interface EditResult {
   operation: SpliceOperation;
   blockCount: number;
   discarded: LossyFinding[];
+  // False when the Docs instance did not send an ETag on either read, so
+  // the concurrent-modification check below had nothing to compare and was
+  // skipped rather than silently passing. `canEdit` is still the primary
+  // lock check either way -- this only means the second safety net was
+  // unavailable, not that the edit was unsafe.
+  staleCheckPerformed: boolean;
 }
 
 export async function editDocument(
@@ -86,11 +92,22 @@ export async function editDocument(
   }
 
   const { etag: etagAfter } = await client.getContentWithEtag(params.id);
-  if (etagBefore !== etagAfter) {
+
+  // A null ETag means the instance (or a proxy in front of it) never sends
+  // one, not that the document is unchanged -- comparing null to null would
+  // pass every time and make the guard silently inert. Skip the comparison
+  // rather than perform one that means nothing, and say so in the result.
+  const staleCheckPerformed = etagBefore !== null;
+  if (staleCheckPerformed && etagBefore !== etagAfter) {
     throw new StaleDocumentError();
   }
 
   await writeBlocks(client, params.id, blocks);
 
-  return { operation: params.operation, blockCount: blocks.length, discarded: findings };
+  return {
+    operation: params.operation,
+    blockCount: blocks.length,
+    discarded: findings,
+    staleCheckPerformed,
+  };
 }

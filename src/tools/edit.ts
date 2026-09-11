@@ -40,9 +40,13 @@ export function registerEditTool(server: McpServerLike, client: DocsClient): voi
         result.discarded.length > 0
           ? `\nDiscarded: ${result.discarded.map((f) => `${f.count}x ${f.type}`).join(', ')}`
           : '';
+      const staleWarning = result.staleCheckPerformed
+        ? ''
+        : '\nNote: this Docs instance sent no ETag, so concurrent-modification ' +
+          'detection was unavailable for this write.';
 
       return toolResult(
-        `Applied ${result.operation}. Document now has ${result.blockCount} blocks.${lost}`,
+        `Applied ${result.operation}. Document now has ${result.blockCount} blocks.${lost}${staleWarning}`,
       );
     },
   );
