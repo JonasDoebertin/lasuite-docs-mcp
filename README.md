@@ -141,6 +141,15 @@ fetched through `docs_read`.
   version with a different block schema may require re-running `npm run
   vendor` and the contract test suite (`npm run test:contract`) before
   this tool can be trusted against it again.
+- **Only the first 50 favorites are exposed as resources.** If your account
+  has more than 50 favorited documents, the rest are not registered as
+  `docs://document/<id>` resources and will not appear in @-mention — Docs'
+  `favorite_list` endpoint takes no ordering parameter, so which 50 you get
+  is whatever order the API happens to return, not "most recent" or
+  anything else guaranteed. A document past the cap is still reachable
+  through `docs_list` and `docs_read` as before. When the cap is hit, the
+  server writes a truncation notice to stderr; it does not appear anywhere
+  in the MCP protocol responses themselves.
 
 ## CLI reference
 
