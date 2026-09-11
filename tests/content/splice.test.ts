@@ -72,4 +72,22 @@ describe('spliceBlocks', () => {
   it('appends into an empty document', () => {
     expect(texts(spliceBlocks([], [para('new')], 'append').blocks)).toEqual(['new']);
   });
+
+  it('rejects a section anchor on replace', () => {
+    expect(() => spliceBlocks(doc, [para('new')], 'replace', 'One')).toThrow(
+      /does not take a section anchor/,
+    );
+  });
+
+  it('rejects a section anchor on append', () => {
+    expect(() => spliceBlocks(doc, [para('new')], 'append', 'One')).toThrow(
+      /does not take a section anchor/,
+    );
+  });
+
+  it('rejects a section anchor on prepend', () => {
+    expect(() => spliceBlocks(doc, [para('new')], 'prepend', 'One')).toThrow(
+      /does not take a section anchor/,
+    );
+  });
 });

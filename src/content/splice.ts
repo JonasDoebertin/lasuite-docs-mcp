@@ -46,6 +46,14 @@ export function spliceBlocks(
     return { blocks: [...before, ...section, ...incoming, ...after], discarded: [] };
   }
 
+  if (anchor !== undefined) {
+    throw new Error(
+      `Operation "${operation}" does not take a section anchor, so "${anchor}" ` +
+        'would be silently ignored. Remove "section" or switch to replace_section ' +
+        'or insert_after_section.',
+    );
+  }
+
   switch (operation) {
     case 'replace':
       return { blocks: [...incoming], discarded: [...existing] };

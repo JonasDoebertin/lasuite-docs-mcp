@@ -5,6 +5,40 @@ import { editDocument } from '../edit/editDocument.js';
 import { toolResult } from './format.js';
 import type { McpServerLike } from './types.js';
 
+const SECTION_OPERATIONS = new Set(['replace_section', 'insert_after_section']);
+
+export const editInputSchema = z
+  .object({
+    id: z.string().describe('Document UUID'),
+    operation: z.enum([
+      'replace',
+      'append',
+      'prepend',
+      'replace_section',
+      'insert_after_section',
+    ]),
+    markdown: z.string(),
+    section: z
+      .string()
+      .optional()
+      .describe('Heading anchor, required for section operations'),
+    confirmLossy: z
+      .boolean()
+      .optional()
+      .describe('Allow a whole-document replace to discard non-markdown blocks'),
+  })
+  .superRefine((value, ctx) => {
+    if (value.section !== undefined && !SECTION_OPERATIONS.has(value.operation)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['section'],
+        message:
+          `"section" is only valid for replace_section and insert_after_section, ` +
+          `not "${value.operation}". Remove it or switch to a section operation.`,
+      });
+    }
+  });
+
 export function registerEditTool(server: McpServerLike, client: DocsClient): void {
   server.registerTool(
     'docs_edit',
@@ -14,25 +48,7 @@ export function registerEditTool(server: McpServerLike, client: DocsClient): voi
         'document), append, prepend, replace_section, insert_after_section. Section ' +
         'operations need a heading anchor from docs_read. Content outside the edited ' +
         'range is preserved exactly, including blocks markdown cannot express.',
-      inputSchema: z.object({
-        id: z.string().describe('Document UUID'),
-        operation: z.enum([
-          'replace',
-          'append',
-          'prepend',
-          'replace_section',
-          'insert_after_section',
-        ]),
-        markdown: z.string(),
-        section: z
-          .string()
-          .optional()
-          .describe('Heading anchor, required for section operations'),
-        confirmLossy: z
-          .boolean()
-          .optional()
-          .describe('Allow a whole-document replace to discard non-markdown blocks'),
-      }),
+      inputSchema: editInputSchema,
     },
     async (params) => {
       const result = await editDocument(client, params);
