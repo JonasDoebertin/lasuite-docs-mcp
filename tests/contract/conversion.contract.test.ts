@@ -87,5 +87,10 @@ describe('conversion contract', () => {
     await expect(
       client.patchContent(summary.id, blocksToYjsBase64(blocks)),
     ).resolves.toBeUndefined();
+
+    const readBack = (await client.getFormattedContent(summary.id, 'markdown')) as string;
+
+    expect(readBack).toContain('patched directly');
+    expect(readBack).not.toContain('initial');
   });
 });
