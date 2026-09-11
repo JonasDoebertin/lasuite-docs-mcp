@@ -5,6 +5,7 @@ import { DocsClient } from './api/client.js';
 import { probeCapabilities, type Capabilities } from './api/capabilities.js';
 import { createAuthenticatedFetch } from './auth/client.js';
 import { loadConfig } from './config/index.js';
+import { registerDocumentResources } from './resources/documents.js';
 import { registerCreateTool } from './tools/create.js';
 import { registerEditTool } from './tools/edit.js';
 import { registerListTool } from './tools/list.js';
@@ -12,7 +13,10 @@ import { registerReadTool } from './tools/read.js';
 import { registerSearchTool } from './tools/search.js';
 import { registerTreeTool } from './tools/tree.js';
 
-export function createServer(client: DocsClient, capabilities: Capabilities): McpServer {
+export async function createServer(
+  client: DocsClient,
+  capabilities: Capabilities,
+): Promise<McpServer> {
   const server = new McpServer({ name: 'lasuite-docs', version: '0.1.0' });
 
   if (capabilities.enabled.has('search')) {
@@ -37,6 +41,9 @@ export function createServer(client: DocsClient, capabilities: Capabilities): Mc
   if (capabilities.enabled.has('content') && capabilities.enabled.has('formatted_content')) {
     registerEditTool(server, client);
   }
+  if (capabilities.enabled.has('formatted_content')) {
+    await registerDocumentResources(server, client);
+  }
 
   return server;
 }
@@ -46,5 +53,6 @@ export async function main(): Promise<void> {
   const client = new DocsClient(createAuthenticatedFetch(config));
   const capabilities = await probeCapabilities(client);
 
-  serveStdio(() => createServer(client, capabilities));
+  const server = await createServer(client, capabilities);
+  serveStdio(() => server);
 }
