@@ -1,4 +1,5 @@
 import { mkdtempSync, statSync } from 'node:fs';
+import { chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -36,6 +37,16 @@ describe('credential store', () => {
   it('writes the credentials file at mode 0600', async () => {
     await writeCredentials('default', { accessToken: 'a', expiresAt: 1 });
     const path = join(home, '.config', 'lasuite-docs-mcp', 'default.json');
+
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+
+  it('re-tightens permissions on an existing credentials file with looser permissions', async () => {
+    await writeCredentials('default', { accessToken: 'a', expiresAt: 1 });
+    const path = join(home, '.config', 'lasuite-docs-mcp', 'default.json');
+    await chmod(path, 0o644);
+
+    await writeCredentials('default', { accessToken: 'b', expiresAt: 2 });
 
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });

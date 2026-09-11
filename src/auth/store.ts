@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 
 export interface StoredCredentials {
   accessToken: string;
@@ -33,12 +33,20 @@ export async function writeCredentials(
   profile: string,
   credentials: StoredCredentials,
 ): Promise<void> {
-  await mkdir(configDir(), { recursive: true, mode: 0o700 });
-  await writeFile(
-    credentialsPath(profile),
-    JSON.stringify(credentials, null, 2),
-    { mode: 0o600 },
-  );
+  const dir = configDir();
+  // `mkdir`'s `mode` option only applies when the directory is created, so a
+  // pre-existing directory with looser permissions would otherwise be left
+  // as-is. This directory is exclusively ours, so it is safe to re-tighten
+  // it unconditionally.
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await chmod(dir, 0o700);
+
+  const path = credentialsPath(profile);
+  // Likewise, `writeFile`'s `mode` option only applies at file creation.
+  // This file holds OAuth tokens and is rewritten on every refresh, so its
+  // permissions must be enforced on every write, not just the first.
+  await writeFile(path, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+  await chmod(path, 0o600);
 }
 
 export async function deleteCredentials(profile: string): Promise<void> {
