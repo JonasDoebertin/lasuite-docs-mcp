@@ -27,10 +27,10 @@ function stubClient(options: {
   let etagCall = 0;
 
   vi.spyOn(client, 'canEdit').mockResolvedValue(options.canEdit ?? true);
-  vi.spyOn(client, 'getFormattedContent').mockResolvedValue(
+  const getFormattedContent = vi.spyOn(client, 'getFormattedContent').mockResolvedValue(
     options.blocks ?? [heading(2, 'One'), para('a'), heading(2, 'Two'), para('b')],
   );
-  vi.spyOn(client, 'getContentWithEtag').mockImplementation(() =>
+  const getContentWithEtag = vi.spyOn(client, 'getContentWithEtag').mockImplementation(() =>
     Promise.resolve({
       base64: options.base64 ?? '',
       etag: etags[etagCall++] ?? etags.at(-1) ?? null,
@@ -38,7 +38,7 @@ function stubClient(options: {
   );
   const patch = vi.spyOn(client, 'patchContent').mockResolvedValue(undefined);
 
-  return { client, patch };
+  return { client, patch, getFormattedContent, getContentWithEtag };
 }
 
 describe('editDocument', () => {
@@ -158,6 +158,16 @@ describe('editDocument', () => {
 
     expect(patch).toHaveBeenCalled();
     expect(result.staleCheckPerformed).toBe(false);
+  });
+
+  it('reads the ETag before reading the blocks, to close the TOCTOU window', async () => {
+    const { client, getFormattedContent, getContentWithEtag } = stubClient();
+
+    await editDocument(client, { id: '1', operation: 'append', markdown: 'tail' });
+
+    const firstEtagCall = getContentWithEtag.mock.invocationCallOrder[0]!;
+    const firstBlocksCall = getFormattedContent.mock.invocationCallOrder[0]!;
+    expect(firstEtagCall).toBeLessThan(firstBlocksCall);
   });
 
   it('proceeds when the document is genuinely empty', async () => {

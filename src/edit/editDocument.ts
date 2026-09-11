@@ -95,8 +95,13 @@ export async function editDocument(
     throw new DocumentLockedError();
   }
 
-  const existing = (await client.getFormattedContent(params.id, 'json')) as DocsBlock[];
+  // Capture the ETag before reading the blocks, not after: a concurrent
+  // write landing between the two reads would otherwise already be baked
+  // into etagBefore, making the staleness comparison below pass on a
+  // document that changed out from under this read. Reading the ETag first
+  // collapses that window to zero.
   const { etag: etagBefore, base64: base64Before } = await client.getContentWithEtag(params.id);
+  const existing = (await client.getFormattedContent(params.id, 'json')) as DocsBlock[];
 
   if (existing.length === 0 && !isTriviallyEmptyYjsState(base64Before)) {
     throw new UnreadableDocumentError();
