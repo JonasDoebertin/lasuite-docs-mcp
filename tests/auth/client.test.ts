@@ -83,6 +83,18 @@ describe('createAuthenticatedFetch', () => {
     expect(last.get('authorization')).toBe('Bearer fresh');
   });
 
+  it('resolves a leading-slash path the same way as its relative form', async () => {
+    await writeCredentials('default', { accessToken: 'at', expiresAt: Date.now() + 60_000 });
+    const spy = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', spy);
+
+    await createAuthenticatedFetch(config)('/documents/');
+
+    expect(spy.mock.calls[0]?.[0]).toBe(
+      'https://docs.example.org/external_api/v1.0/documents/',
+    );
+  });
+
   it('tells the user to log in again when the refresh token is rejected', async () => {
     await writeCredentials('default', {
       accessToken: 'old',

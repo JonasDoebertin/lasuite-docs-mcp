@@ -54,6 +54,14 @@ export function createAuthenticatedFetch(config: Config): AuthenticatedFetch {
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${credentials.accessToken}`);
 
-    return fetch(new URL(path, base).toString(), { ...init, headers });
+    // `path` is documented as relative to `base`, but `new URL(path, base)`
+    // treats a leading slash as absolute and resolves it against the origin,
+    // silently escaping the versioned `/external_api/v1.0/` prefix. Stripping
+    // leading slashes keeps a caller's accidental `/documents/` pointed at
+    // the same endpoint as the correct `documents/`, turning a would-be
+    // wrong-endpoint request into a no-op difference.
+    const relativePath = path.replace(/^\/+/, '');
+
+    return fetch(new URL(relativePath, base).toString(), { ...init, headers });
   };
 }

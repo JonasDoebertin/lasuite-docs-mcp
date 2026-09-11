@@ -49,4 +49,11 @@ describe('toDocsApiError', () => {
   it('maps 5xx to server', () => {
     expect(toDocsApiError(response(503), { action: 'list' }).kind).toBe('server');
   });
+
+  it('maps an unhandled 4xx to bad_request, not server', () => {
+    const error = toDocsApiError(response(400), { action: 'update' });
+
+    expect(error.kind).toBe('bad_request');
+    expect(error.message).toContain('400');
+  });
 });

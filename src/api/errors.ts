@@ -5,6 +5,7 @@ export type ErrorKind =
   | 'not_found'
   | 'throttled'
   | 'conflict'
+  | 'bad_request'
   | 'server'
   | 'network';
 
@@ -73,6 +74,14 @@ export function toDocsApiError(
     return new DocsApiError(
       'conflict',
       'The document changed since it was read. Re-read it and retry the edit.',
+      status,
+    );
+  }
+
+  if (status >= 400 && status < 500) {
+    return new DocsApiError(
+      'bad_request',
+      `Docs rejected the request as invalid (HTTP ${status}).`,
       status,
     );
   }
