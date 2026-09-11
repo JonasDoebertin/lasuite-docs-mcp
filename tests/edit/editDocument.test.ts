@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as Y from 'yjs';
 import {
   DocumentLockedError,
   LossyEditError,
@@ -8,6 +9,7 @@ import {
 } from '../../src/edit/editDocument.js';
 import { DocsClient } from '../../src/api/client.js';
 import { blocksToYjsBase64, yjsBase64ToBlocks } from '../../src/content/convert.js';
+import { YJS_FRAGMENT_KEY } from '../../src/content/editor.js';
 import { ConversionError } from '../../src/edit/conversion.js';
 
 const heading = (level: number, text: string) => ({
@@ -172,7 +174,8 @@ describe('editDocument', () => {
   });
 
   it('proceeds when the document is genuinely empty', async () => {
-    const { client, patch } = stubClient({ blocks: [], base64: '' });
+    const emptyState = blocksToYjsBase64([]);
+    const { client, patch } = stubClient({ blocks: [], base64: emptyState });
 
     const result = await editDocument(client, {
       id: '1',
@@ -184,7 +187,35 @@ describe('editDocument', () => {
     expect(result.blockCount).toBeGreaterThan(0);
   });
 
-  it('refuses when formatted-content reports no blocks but the raw state is not trivially empty', async () => {
+  it('proceeds when the raw state carries edit-history tombstones but decodes to no blocks', async () => {
+    // A byte-length threshold would misfire here: ordinary insert/delete
+    // cycles from real collaborative editing leave Yjs delete-set overhead
+    // that has nothing to do with visible content. 20 cycles produce a
+    // state well over 200 bytes -- larger than even a short real block --
+    // while still decoding to zero blocks.
+    const ydoc = new Y.Doc();
+    const fragment = ydoc.getXmlFragment(YJS_FRAGMENT_KEY);
+    for (let i = 0; i < 20; i += 1) {
+      fragment.insert(0, [new Y.XmlText(`content ${i}`)]);
+      fragment.delete(0, 1);
+    }
+    const stateWithTombstones = Buffer.from(Y.encodeStateAsUpdate(ydoc)).toString('base64');
+    ydoc.destroy();
+    expect(Buffer.from(stateWithTombstones, 'base64').length).toBeGreaterThan(200);
+
+    const { client, patch } = stubClient({ blocks: [], base64: stateWithTombstones });
+
+    const result = await editDocument(client, {
+      id: '1',
+      operation: 'append',
+      markdown: 'tail',
+    });
+
+    expect(patch).toHaveBeenCalled();
+    expect(result.blockCount).toBeGreaterThan(0);
+  });
+
+  it('refuses when formatted-content reports no blocks but the raw state decodes to real content', async () => {
     const realState = blocksToYjsBase64([
       para('a real paragraph nobody told us about'),
     ] as never);
@@ -193,6 +224,15 @@ describe('editDocument', () => {
     await expect(
       editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
     ).rejects.toThrow(UnreadableDocumentError);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('refuses when formatted-content reports no blocks and the raw state cannot be decoded at all', async () => {
+    const { client, patch } = stubClient({ blocks: [], base64: 'not valid base64 yjs state' });
+
+    await expect(
+      editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
+    ).rejects.toThrow(/could not be decoded locally/);
     expect(patch).not.toHaveBeenCalled();
   });
 

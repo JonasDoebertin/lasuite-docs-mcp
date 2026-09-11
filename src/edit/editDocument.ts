@@ -1,4 +1,5 @@
 import type { DocsClient } from '../api/client.js';
+import { yjsBase64ToBlocks } from '../content/convert.js';
 import { detectLossyBlocks, type LossyFinding } from '../content/lossy.js';
 import { spliceBlocks, type SpliceOperation } from '../content/splice.js';
 import type { DocsBlock } from '../content/types.js';
@@ -25,27 +26,46 @@ export class StaleDocumentError extends Error {
   }
 }
 
-// A Y.Doc holding zero blocks encodes to roughly 40 bytes: just the fragment
-// declaration and no elements. A single, even trivially short, real block
-// pushes that past 200 bytes. This threshold sits comfortably between the
-// two, so it distinguishes "the document genuinely holds no blocks" from
-// "formatted-content returned an empty array but the raw state disagrees"
-// without needing to trust our own schema to decode content this instance's
-// own converter produced.
-const TRIVIAL_YJS_STATE_BYTES = 64;
+// A byte-length threshold was tried here first and rejected: ordinary
+// collaborative editing history (Yjs tombstones and delete-set overhead from
+// insert/delete cycles) can push an honestly-empty document's encoded state
+// past any threshold that still leaves room for real content below it. The
+// only comparison that means what we actually want is decoding the raw
+// state with the same conversion this project already uses everywhere else,
+// and comparing block counts directly instead of guessing from size.
+type EmptyReadCheck =
+  | { falselyEmpty: false }
+  | { falselyEmpty: true; reason: 'mismatch' | 'unparseable'; cause?: unknown };
 
-function isTriviallyEmptyYjsState(base64: string): boolean {
-  return Buffer.from(base64, 'base64').length <= TRIVIAL_YJS_STATE_BYTES;
+function checkEmptyRead(base64: string): EmptyReadCheck {
+  let decoded: DocsBlock[];
+  try {
+    decoded = yjsBase64ToBlocks(base64);
+  } catch (cause) {
+    // A raw state we cannot parse at all is not one we should overwrite --
+    // it might be an instance-specific representation this project's schema
+    // doesn't recognise, and either way "unreadable" is not "empty".
+    return { falselyEmpty: true, reason: 'unparseable', cause };
+  }
+
+  if (decoded.length > 0) {
+    return { falselyEmpty: true, reason: 'mismatch' };
+  }
+  return { falselyEmpty: false };
 }
 
 export class UnreadableDocumentError extends Error {
-  constructor() {
+  constructor(reason: 'mismatch' | 'unparseable', cause?: unknown) {
+    const detail =
+      reason === 'mismatch'
+        ? 'formatted-content reported no blocks, but decoding the raw Yjs state ' +
+          'locally finds real content.'
+        : 'formatted-content reported no blocks, and the raw Yjs state could not ' +
+          'be decoded locally either, so it cannot be confirmed empty.';
     super(
-      'Docs reported this document as having no blocks, but its raw Yjs state is ' +
-        'not trivially empty. This looks like formatted-content misread or ' +
-        'truncated the document rather than the document actually being blank. ' +
-        'Refusing to write: proceeding would replace real content with only the ' +
-        'new markdown.',
+      `Docs returned this document as empty, but that could not be verified: ${detail} ` +
+        'Refusing to write: proceeding could replace real content with only the new markdown.',
+      cause !== undefined ? { cause } : undefined,
     );
     this.name = 'UnreadableDocumentError';
   }
@@ -103,8 +123,11 @@ export async function editDocument(
   const { etag: etagBefore, base64: base64Before } = await client.getContentWithEtag(params.id);
   const existing = (await client.getFormattedContent(params.id, 'json')) as DocsBlock[];
 
-  if (existing.length === 0 && !isTriviallyEmptyYjsState(base64Before)) {
-    throw new UnreadableDocumentError();
+  if (existing.length === 0) {
+    const emptyReadCheck = checkEmptyRead(base64Before);
+    if (emptyReadCheck.falselyEmpty) {
+      throw new UnreadableDocumentError(emptyReadCheck.reason, emptyReadCheck.cause);
+    }
   }
 
   const incoming = await convertMarkdownToBlocks(params.markdown);
