@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDocumentFromMarkdown, writeBlocks } from '../../src/edit/writeContent.js';
+import {
+  ContentWriteAfterCreateError,
+  createDocumentFromMarkdown,
+  writeBlocks,
+} from '../../src/edit/writeContent.js';
 import { DocsClient } from '../../src/api/client.js';
 import { yjsBase64ToBlocks } from '../../src/content/convert.js';
 
@@ -57,5 +61,25 @@ describe('createDocumentFromMarkdown', () => {
     await createDocumentFromMarkdown(client, { title: 'Empty', markdown: '' });
 
     expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the created document id when the content write fails', async () => {
+    const { client, patch } = stubClient();
+    const writeFailure = new Error('Docs is rate limiting this client.');
+    patch.mockRejectedValue(writeFailure);
+
+    let thrown: unknown;
+    try {
+      await createDocumentFromMarkdown(client, { title: 'Notes', markdown: '# Notes' });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ContentWriteAfterCreateError);
+    const error = thrown as ContentWriteAfterCreateError;
+    expect(error.documentId).toBe('new-id');
+    expect(error.message).toContain('new-id');
+    expect(error.message).toContain('Docs is rate limiting this client.');
+    expect(error.cause).toBe(writeFailure);
   });
 });
