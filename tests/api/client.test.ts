@@ -70,6 +70,22 @@ describe('DocsClient', () => {
     await expect(client.getFormattedContent('1', 'json')).resolves.toEqual([]);
   });
 
+  it('rejects a json content envelope that is not an array', async () => {
+    const { client } = clientWith(() =>
+      json({ id: '1', title: 'A', content: { unexpected: 'shape' } }),
+    );
+
+    await expect(client.getFormattedContent('1', 'json')).rejects.toThrow(
+      /did not resolve to an array/,
+    );
+  });
+
+  it('does not require an array for markdown or html content', async () => {
+    const { client } = clientWith(() => json({ id: '1', title: 'A', content: '# Hi' }));
+
+    await expect(client.getFormattedContent('1', 'markdown')).resolves.toBe('# Hi');
+  });
+
   it('captures the ETag alongside raw content', async () => {
     const { client } = clientWith(
       () => new Response('YmFzZTY0', { status: 200, headers: { etag: '"abc"' } }),

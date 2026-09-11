@@ -25,6 +25,32 @@ export class StaleDocumentError extends Error {
   }
 }
 
+// A Y.Doc holding zero blocks encodes to roughly 40 bytes: just the fragment
+// declaration and no elements. A single, even trivially short, real block
+// pushes that past 200 bytes. This threshold sits comfortably between the
+// two, so it distinguishes "the document genuinely holds no blocks" from
+// "formatted-content returned an empty array but the raw state disagrees"
+// without needing to trust our own schema to decode content this instance's
+// own converter produced.
+const TRIVIAL_YJS_STATE_BYTES = 64;
+
+function isTriviallyEmptyYjsState(base64: string): boolean {
+  return Buffer.from(base64, 'base64').length <= TRIVIAL_YJS_STATE_BYTES;
+}
+
+export class UnreadableDocumentError extends Error {
+  constructor() {
+    super(
+      'Docs reported this document as having no blocks, but its raw Yjs state is ' +
+        'not trivially empty. This looks like formatted-content misread or ' +
+        'truncated the document rather than the document actually being blank. ' +
+        'Refusing to write: proceeding would replace real content with only the ' +
+        'new markdown.',
+    );
+    this.name = 'UnreadableDocumentError';
+  }
+}
+
 export class LossyEditError extends Error {
   readonly findings: LossyFinding[];
 
@@ -70,7 +96,11 @@ export async function editDocument(
   }
 
   const existing = (await client.getFormattedContent(params.id, 'json')) as DocsBlock[];
-  const { etag: etagBefore } = await client.getContentWithEtag(params.id);
+  const { etag: etagBefore, base64: base64Before } = await client.getContentWithEtag(params.id);
+
+  if (existing.length === 0 && !isTriviallyEmptyYjsState(base64Before)) {
+    throw new UnreadableDocumentError();
+  }
 
   const incoming = await markdownToBlocks(params.markdown);
   const { blocks, discarded } = spliceBlocks(

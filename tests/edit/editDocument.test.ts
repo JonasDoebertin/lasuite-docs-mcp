@@ -3,10 +3,11 @@ import {
   DocumentLockedError,
   LossyEditError,
   StaleDocumentError,
+  UnreadableDocumentError,
   editDocument,
 } from '../../src/edit/editDocument.js';
 import { DocsClient } from '../../src/api/client.js';
-import { yjsBase64ToBlocks } from '../../src/content/convert.js';
+import { blocksToYjsBase64, yjsBase64ToBlocks } from '../../src/content/convert.js';
 
 const heading = (level: number, text: string) => ({
   type: 'heading',
@@ -19,6 +20,7 @@ function stubClient(options: {
   blocks?: unknown[];
   canEdit?: boolean;
   etags?: string[];
+  base64?: string;
 } = {}) {
   const client = new DocsClient(async () => new Response('{}', { status: 200 }));
   const etags = options.etags ?? ['"v1"', '"v1"'];
@@ -29,7 +31,10 @@ function stubClient(options: {
     options.blocks ?? [heading(2, 'One'), para('a'), heading(2, 'Two'), para('b')],
   );
   vi.spyOn(client, 'getContentWithEtag').mockImplementation(() =>
-    Promise.resolve({ base64: '', etag: etags[etagCall++] ?? etags.at(-1) ?? null }),
+    Promise.resolve({
+      base64: options.base64 ?? '',
+      etag: etags[etagCall++] ?? etags.at(-1) ?? null,
+    }),
   );
   const patch = vi.spyOn(client, 'patchContent').mockResolvedValue(undefined);
 
@@ -153,6 +158,31 @@ describe('editDocument', () => {
 
     expect(patch).toHaveBeenCalled();
     expect(result.staleCheckPerformed).toBe(false);
+  });
+
+  it('proceeds when the document is genuinely empty', async () => {
+    const { client, patch } = stubClient({ blocks: [], base64: '' });
+
+    const result = await editDocument(client, {
+      id: '1',
+      operation: 'append',
+      markdown: 'tail',
+    });
+
+    expect(patch).toHaveBeenCalled();
+    expect(result.blockCount).toBeGreaterThan(0);
+  });
+
+  it('refuses when formatted-content reports no blocks but the raw state is not trivially empty', async () => {
+    const realState = blocksToYjsBase64([
+      para('a real paragraph nobody told us about'),
+    ] as never);
+    const { client, patch } = stubClient({ blocks: [], base64: realState });
+
+    await expect(
+      editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
+    ).rejects.toThrow(UnreadableDocumentError);
+    expect(patch).not.toHaveBeenCalled();
   });
 
   it('still aborts on a moved ETag when both reads return a real value', async () => {

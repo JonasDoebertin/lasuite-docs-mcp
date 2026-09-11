@@ -2,6 +2,24 @@ import type { AuthenticatedFetch } from '../auth/client.js';
 import { DocsApiError, toDocsApiError, type ErrorKind } from './errors.js';
 import type { ContentWithEtag, DocumentSummary, TreeNode } from './types.js';
 
+// `formatted_content` is an undocumented action: nothing guarantees its
+// envelope shape on an instance we don't control. Casting `content` straight
+// to `DocsBlock[]` would let a shape change reach the edit path as silent
+// truncation (a non-array read as `[]`-like and treated as "no blocks").
+// Fail loudly instead so the caller can tell "empty document" apart from
+// "the API returned something we didn't expect".
+export class MalformedContentError extends Error {
+  constructor(id: string) {
+    super(
+      `Docs returned formatted-content for document ${id} in an unexpected shape: ` +
+        'content_format=json did not resolve to an array. This may mean the ' +
+        "instance's API has changed; treat this document's content as unreadable " +
+        'rather than assume it is empty.',
+    );
+    this.name = 'MalformedContentError';
+  }
+}
+
 /** Waits `ms` milliseconds. Injectable so tests can assert retry behaviour without sleeping. */
 export type Delay = (ms: number) => Promise<void>;
 
@@ -208,6 +226,11 @@ export class DocsClient {
     if (payload.content === null || payload.content === undefined) {
       return format === 'json' ? [] : '';
     }
+
+    if (format === 'json' && !Array.isArray(payload.content)) {
+      throw new MalformedContentError(id);
+    }
+
     return payload.content;
   }
 
