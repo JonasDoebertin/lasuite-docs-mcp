@@ -1,0 +1,26 @@
+{
+  "name": "lasuite-docs-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22" },
+  "bin": { "lasuite-docs-mcp": "./dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
+    "vendor": "bash scripts/vendor-blockspecs.sh"
+  },
+  "dependencies": {
+    "@blocknote/core": "0.54.0",
+    "@blocknote/server-util": "0.54.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "yjs": "^13.6.32",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.0.0"
+  }
+}
