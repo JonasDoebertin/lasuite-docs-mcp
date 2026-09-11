@@ -6,6 +6,7 @@ import { probeCapabilities, type Capabilities } from './api/capabilities.js';
 import { createAuthenticatedFetch } from './auth/client.js';
 import { loadConfig } from './config/index.js';
 import { registerCreateTool } from './tools/create.js';
+import { registerEditTool } from './tools/edit.js';
 import { registerListTool } from './tools/list.js';
 import { registerReadTool } from './tools/read.js';
 import { registerSearchTool } from './tools/search.js';
@@ -32,6 +33,9 @@ export function createServer(client: DocsClient, capabilities: Capabilities): Mc
   // lets a rejected route surface its own classified error at call time.
   if (capabilities.enabled.has('create') || capabilities.enabled.has('children')) {
     registerCreateTool(server, client);
+  }
+  if (capabilities.enabled.has('content') && capabilities.enabled.has('formatted_content')) {
+    registerEditTool(server, client);
   }
 
   return server;
