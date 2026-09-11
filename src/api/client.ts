@@ -1,6 +1,48 @@
 import type { AuthenticatedFetch } from '../auth/client.js';
-import { toDocsApiError } from './errors.js';
+import { DocsApiError, toDocsApiError, type ErrorKind } from './errors.js';
 import type { ContentWithEtag, DocumentSummary, TreeNode } from './types.js';
+
+/** Waits `ms` milliseconds. Injectable so tests can assert retry behaviour without sleeping. */
+export type Delay = (ms: number) => Promise<void>;
+
+const MAX_ATTEMPTS = 3;
+const BASE_DELAY_MS = 250;
+const MAX_RETRY_AFTER_MS = 30_000;
+
+// Only these failures can plausibly succeed on a retry: a transient server
+// error, a dropped connection, or a rate limit that will lift. Everything
+// else (bad requests, auth, permissions, conflicts, missing documents) is
+// deterministic and retrying it only delays an actionable error.
+const RETRYABLE_KINDS: ReadonlySet<ErrorKind> = new Set(['server', 'network', 'throttled']);
+
+const realDelay: Delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function describeCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+function isIdempotentGet(init?: RequestInit): boolean {
+  return (init?.method ?? 'GET').toUpperCase() === 'GET';
+}
+
+function backoffMs(attempt: number): number {
+  const exponential = BASE_DELAY_MS * 2 ** (attempt - 1);
+  return exponential + Math.random() * BASE_DELAY_MS;
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const raw = response.headers.get('retry-after');
+  if (!raw) return undefined;
+
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return undefined;
+
+  return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+}
+
+type AttemptResult =
+  | { ok: true; response: Response }
+  | { ok: false; error: DocsApiError; response?: Response };
 
 interface RawDocument {
   id: string;
@@ -32,7 +74,10 @@ function toTree(raw: RawDocument): TreeNode {
 export class DocsClient {
   private readonly actionEnabled = new Map<string, boolean>();
 
-  constructor(private readonly request: AuthenticatedFetch) {}
+  constructor(
+    private readonly request: AuthenticatedFetch,
+    private readonly delay: Delay = realDelay,
+  ) {}
 
   setActionEnabled(action: string, enabled: boolean): void {
     this.actionEnabled.set(action, enabled);
@@ -42,17 +87,65 @@ export class DocsClient {
     return this.actionEnabled.get(action);
   }
 
-  private async send(path: string, action: string, init?: RequestInit): Promise<Response> {
-    const response = await this.request(path, init);
-
-    if (!response.ok) {
-      throw toDocsApiError(response, {
-        action,
-        actionEnabled: this.actionEnabled.get(action),
-      });
+  private async attempt(path: string, action: string, init?: RequestInit): Promise<AttemptResult> {
+    let response: Response;
+    try {
+      response = await this.request(path, init);
+    } catch (cause) {
+      return {
+        ok: false,
+        error: new DocsApiError(
+          'network',
+          `Network error while contacting Docs: ${describeCause(cause)}`,
+        ),
+      };
     }
 
-    return response;
+    if (!response.ok) {
+      return {
+        ok: false,
+        response,
+        error: toDocsApiError(response, { action, actionEnabled: this.actionEnabled.get(action) }),
+      };
+    }
+
+    return { ok: true, response };
+  }
+
+  private async send(path: string, action: string, init?: RequestInit): Promise<Response> {
+    // Writes are never retried: a POST/PATCH/DELETE that may have landed on
+    // the server is not something to guess about by sending it again.
+    if (!isIdempotentGet(init)) {
+      const result = await this.attempt(path, action, init);
+      if (!result.ok) throw result.error;
+      return result.response;
+    }
+
+    let lastError: DocsApiError | undefined;
+
+    for (let attemptNumber = 1; attemptNumber <= MAX_ATTEMPTS; attemptNumber += 1) {
+      const result = await this.attempt(path, action, init);
+
+      if (result.ok) {
+        return result.response;
+      }
+
+      lastError = result.error;
+      const canRetry = attemptNumber < MAX_ATTEMPTS && RETRYABLE_KINDS.has(result.error.kind);
+      if (!canRetry) {
+        throw result.error;
+      }
+
+      const delayMs =
+        result.error.kind === 'throttled' && result.response
+          ? (retryAfterMs(result.response) ?? backoffMs(attemptNumber))
+          : backoffMs(attemptNumber);
+      await this.delay(delayMs);
+    }
+
+    // Unreachable: the loop above always returns on success or throws once
+    // retries are exhausted. This satisfies the function's return type.
+    throw lastError ?? new DocsApiError('network', 'Retry loop exited without a result.');
   }
 
   private async sendJson<T>(path: string, action: string, init?: RequestInit): Promise<T> {
