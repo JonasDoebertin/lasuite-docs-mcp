@@ -1,6 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 
 export interface StoredCredentials {
   accessToken: string;
@@ -42,11 +43,26 @@ export async function writeCredentials(
   await chmod(dir, 0o700);
 
   const path = credentialsPath(profile);
-  // Likewise, `writeFile`'s `mode` option only applies at file creation.
-  // This file holds OAuth tokens and is rewritten on every refresh, so its
-  // permissions must be enforced on every write, not just the first.
-  await writeFile(path, JSON.stringify(credentials, null, 2), { mode: 0o600 });
-  await chmod(path, 0o600);
+  // `writeFile`'s `mode` option only takes effect when the file is created
+  // (an existing inode ignores it), so overwriting the target directly would
+  // briefly write the new token to a file that may still carry looser,
+  // pre-existing permissions. Writing to a fresh, uniquely-named temp file in
+  // the same directory means `mode: 0o600` is genuinely honoured at
+  // creation, and a random suffix avoids collisions between concurrent
+  // writers. Renaming the temp file over the target is atomic on POSIX
+  // filesystems (both paths must be on the same filesystem, which the same
+  // directory guarantees), so a reader never observes a partially written or
+  // loosely permissioned file, and a crash mid-write leaves the previous
+  // contents intact rather than truncated JSON.
+  const tempPath = join(dir, `.${profile}.${randomBytes(8).toString('hex')}.tmp`);
+
+  try {
+    await writeFile(tempPath, JSON.stringify(credentials, null, 2), { mode: 0o600 });
+    await rename(tempPath, path);
+  } catch (error) {
+    await rm(tempPath, { force: true });
+    throw error;
+  }
 }
 
 export async function deleteCredentials(profile: string): Promise<void> {

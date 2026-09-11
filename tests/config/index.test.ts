@@ -47,4 +47,13 @@ describe('loadConfig', () => {
       ConfigError,
     );
   });
+
+  it('rejects a profile name containing path separators or ".."', () => {
+    expect(() => loadConfig({ ...validEnv, DOCS_PROFILE: '../../.ssh/id_rsa' })).toThrow(
+      ConfigError,
+    );
+    expect(() => loadConfig({ ...validEnv, DOCS_PROFILE: '../../.ssh/id_rsa' })).toThrow(
+      /DOCS_PROFILE/,
+    );
+  });
 });

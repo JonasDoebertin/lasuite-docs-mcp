@@ -1,5 +1,5 @@
 import { mkdtempSync, statSync } from 'node:fs';
-import { chmod } from 'node:fs/promises';
+import { chmod, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -49,6 +49,13 @@ describe('credential store', () => {
     await writeCredentials('default', { accessToken: 'b', expiresAt: 2 });
 
     expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+
+  it('leaves no temporary files behind after a successful write', async () => {
+    await writeCredentials('default', { accessToken: 'a', expiresAt: 1 });
+    const dir = join(home, '.config', 'lasuite-docs-mcp');
+
+    expect(await readdir(dir)).toEqual(['default.json']);
   });
 
   it('keeps profiles separate', async () => {
