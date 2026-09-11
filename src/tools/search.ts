@@ -16,7 +16,7 @@ export function registerSearchTool(server: McpServerLike, client: DocsClient): v
         limit: z.number().int().positive().max(100).optional(),
       }),
     },
-    async ({ query, limit }: { query: string; limit?: number }) =>
+    async ({ query, limit }) =>
       toolResult(renderDocumentList(await client.searchDocuments(query, limit ?? 20))),
   );
 }

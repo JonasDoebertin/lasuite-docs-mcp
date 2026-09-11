@@ -65,4 +65,16 @@ describe('readDocument', () => {
 
     await expect(readDocument(client, { id: '1' })).resolves.toContain('empty');
   });
+
+  it('directs to maxChars, not section, when a headingless document exceeds the limit', async () => {
+    const client = clientReturning({
+      markdown: 'x'.repeat(500),
+      json: [para('x'.repeat(500))],
+    });
+
+    const output = await readDocument(client, { id: '1', maxChars: 100 });
+
+    expect(output).toContain('maxChars');
+    expect(output).not.toContain('section');
+  });
 });

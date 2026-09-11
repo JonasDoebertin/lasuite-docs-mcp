@@ -21,13 +21,7 @@ export function registerListTool(server: McpServerLike, client: DocsClient): voi
         limit: z.number().int().positive().max(200).optional(),
       }),
     },
-    async (params: {
-      title?: string;
-      isFavorite?: boolean;
-      isCreatorMe?: boolean;
-      ordering?: string;
-      limit?: number;
-    }) =>
+    async (params) =>
       toolResult(
         renderDocumentList(
           await client.listDocuments({

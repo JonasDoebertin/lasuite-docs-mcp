@@ -13,6 +13,6 @@ export function registerTreeTool(server: McpServerLike, client: DocsClient): voi
         'Cheaper than reading content when orienting in a wiki.',
       inputSchema: z.object({ id: z.string().describe('Document UUID') }),
     },
-    async ({ id }: { id: string }) => toolResult(renderTree(await client.getTree(id))),
+    async ({ id }) => toolResult(renderTree(await client.getTree(id))),
   );
 }

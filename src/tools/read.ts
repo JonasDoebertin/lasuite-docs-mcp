@@ -33,7 +33,17 @@ export async function readDocument(
   }
 
   const blocks = (await client.getFormattedContent(params.id, 'json')) as DocsBlock[];
-  const outline = renderOutline(indexHeadings(blocks));
+  const headings = indexHeadings(blocks);
+
+  if (headings.length === 0) {
+    return (
+      `This document is ${markdown.length} characters, over the ${maxChars} limit, ` +
+      'and has no headings to read in parts. Call docs_read again with a larger ' +
+      '"maxChars" to read it in full.'
+    );
+  }
+
+  const outline = renderOutline(headings);
 
   return (
     `This document is ${markdown.length} characters, over the ${maxChars} limit, ` +
