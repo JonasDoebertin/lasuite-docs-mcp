@@ -37,6 +37,21 @@ const schema = z.object({
   DOCS_PROFILE: profileName.default('default'),
 });
 
+// Validates and defaults DOCS_PROFILE alone, for commands (`logout`) that
+// only need to know which credentials file to touch and must not force
+// DOCS_URL / DOCS_OIDC_ISSUER / DOCS_OIDC_CLIENT_ID to be set just to run.
+export function resolveProfile(env: NodeJS.ProcessEnv): string {
+  const parsed = profileName.default('default').safeParse(env.DOCS_PROFILE);
+
+  if (!parsed.success) {
+    throw new ConfigError(
+      `Invalid DOCS_PROFILE. ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
+    );
+  }
+
+  return parsed.data;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const parsed = schema.safeParse(env);
 

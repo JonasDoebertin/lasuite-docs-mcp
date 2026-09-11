@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ConfigError, loadConfig } from '../../src/config/index.js';
+import { ConfigError, loadConfig, resolveProfile } from '../../src/config/index.js';
 
 const validEnv = {
   DOCS_URL: 'https://docs.example.org',
@@ -55,5 +55,19 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...validEnv, DOCS_PROFILE: '../../.ssh/id_rsa' })).toThrow(
       /DOCS_PROFILE/,
     );
+  });
+});
+
+describe('resolveProfile', () => {
+  it('defaults to "default" with no other environment set', () => {
+    expect(resolveProfile({})).toBe('default');
+  });
+
+  it('honours an explicit profile', () => {
+    expect(resolveProfile({ DOCS_PROFILE: 'work' })).toBe('work');
+  });
+
+  it('rejects a profile name containing path separators or ".."', () => {
+    expect(() => resolveProfile({ DOCS_PROFILE: '../../.ssh/id_rsa' })).toThrow(ConfigError);
   });
 });

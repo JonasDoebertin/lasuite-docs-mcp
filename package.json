@@ -4,7 +4,10 @@
   "type": "module",
   "license": "MIT",
   "engines": { "node": ">=22" },
-  "bin": { "lasuite-docs-mcp": "./dist/cli.js" },
+  "bin": {
+    "lasuite-docs-mcp": "./dist/cli.js",
+    "lasuite-docs-mcp-server": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
