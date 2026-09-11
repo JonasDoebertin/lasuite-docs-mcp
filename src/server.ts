@@ -28,7 +28,10 @@ export async function createServer(
   if (capabilities.enabled.has('tree')) {
     registerTreeTool(server, client);
   }
-  if (capabilities.enabled.has('formatted_content')) {
+  // docs_read prefers formatted_content but falls back to content_retrieve
+  // plus local Yjs conversion when the instance doesn't expose the former,
+  // so the tool only needs to go unregistered when neither read path works.
+  if (capabilities.enabled.has('formatted_content') || capabilities.enabled.has('content_retrieve')) {
     registerReadTool(server, client);
   }
   // docs_create can route through either the root `create` action or the
