@@ -5,6 +5,7 @@ import { DocsClient } from './api/client.js';
 import { probeCapabilities, type Capabilities } from './api/capabilities.js';
 import { createAuthenticatedFetch } from './auth/client.js';
 import { loadConfig } from './config/index.js';
+import { registerCreateTool } from './tools/create.js';
 import { registerListTool } from './tools/list.js';
 import { registerReadTool } from './tools/read.js';
 import { registerSearchTool } from './tools/search.js';
@@ -24,6 +25,13 @@ export function createServer(client: DocsClient, capabilities: Capabilities): Mc
   }
   if (capabilities.enabled.has('formatted_content')) {
     registerReadTool(server, client);
+  }
+  // docs_create can route through either the root `create` action or the
+  // `children` action when nesting under a parent -- an instance may permit
+  // one without the other, so the tool stays registered if either works and
+  // lets a rejected route surface its own classified error at call time.
+  if (capabilities.enabled.has('create') || capabilities.enabled.has('children')) {
+    registerCreateTool(server, client);
   }
 
   return server;
