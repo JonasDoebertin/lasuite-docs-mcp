@@ -120,4 +120,64 @@ describe('createAuthenticatedFetch', () => {
       /lasuite-docs-mcp login/,
     );
   });
+
+  it('surfaces a timed-out request as a network error rather than an unhandled rejection', async () => {
+    await writeCredentials('default', { accessToken: 'at', expiresAt: Date.now() + 60_000 });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.reject(new DOMException('The operation timed out.', 'TimeoutError')),
+      ),
+    );
+
+    const error: unknown = await createAuthenticatedFetch(config)('documents/').catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(DocsApiError);
+    expect((error as DocsApiError).kind).toBe('network');
+  });
+
+  it('surfaces an aborted request as a network error', async () => {
+    await writeCredentials('default', { accessToken: 'at', expiresAt: Date.now() + 60_000 });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new DOMException('Aborted.', 'AbortError'))),
+    );
+
+    const error: unknown = await createAuthenticatedFetch(config)('documents/').catch(
+      (caught: unknown) => caught,
+    );
+
+    expect(error).toBeInstanceOf(DocsApiError);
+    expect((error as DocsApiError).kind).toBe('network');
+  });
+
+  it('attaches a bounded timeout signal to every request', async () => {
+    await writeCredentials('default', { accessToken: 'at', expiresAt: Date.now() + 60_000 });
+    const spy = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', spy);
+
+    await createAuthenticatedFetch(config)('documents/');
+
+    const signal = spy.mock.calls[0]?.[1]?.signal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+  });
+
+  it('composes a caller-supplied signal with the timeout instead of discarding it', async () => {
+    await writeCredentials('default', { accessToken: 'at', expiresAt: Date.now() + 60_000 });
+    const spy = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', spy);
+
+    const callerController = new AbortController();
+    await createAuthenticatedFetch(config)('documents/', { signal: callerController.signal });
+
+    const composedSignal = spy.mock.calls[0]?.[1]?.signal;
+    expect(composedSignal).not.toBe(callerController.signal);
+    expect(composedSignal?.aborted).toBe(false);
+
+    callerController.abort(new Error('caller cancelled'));
+    expect(composedSignal?.aborted).toBe(true);
+  });
 });

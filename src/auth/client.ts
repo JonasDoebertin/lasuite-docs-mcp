@@ -7,6 +7,17 @@ export type AuthenticatedFetch = (path: string, init?: RequestInit) => Promise<R
 
 const LOGIN_HINT = 'Run `npx lasuite-docs-mcp login` and try again.';
 const EXPIRY_SKEW_MS = 30_000;
+// Bounds every request so a hung TCP connection cannot stall the process
+// forever. This matters most at startup: the capability probe runs before a
+// stdio MCP server can answer its client's `initialize` handshake, so a
+// request that never resolves and never errors would hang the whole server
+// with no diagnostic. Three retries times this timeout is still finite,
+// which is the property that matters.
+const REQUEST_TIMEOUT_MS = 30_000;
+
+function isAbortError(error: unknown): error is DOMException {
+  return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
+}
 
 async function currentCredentials(config: Config): Promise<StoredCredentials> {
   const stored = await readCredentials(config.profile);
@@ -62,6 +73,21 @@ export function createAuthenticatedFetch(config: Config): AuthenticatedFetch {
     // wrong-endpoint request into a no-op difference.
     const relativePath = path.replace(/^\/+/, '');
 
-    return fetch(new URL(relativePath, base).toString(), { ...init, headers });
+    // Compose with the caller's own signal, if any, rather than silently
+    // discarding it -- either one aborting should abort the request.
+    const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeoutSignal]) : timeoutSignal;
+
+    try {
+      return await fetch(new URL(relativePath, base).toString(), { ...init, headers, signal });
+    } catch (cause) {
+      if (isAbortError(cause)) {
+        throw new DocsApiError(
+          'network',
+          `Docs did not respond within ${REQUEST_TIMEOUT_MS / 1000} seconds.`,
+        );
+      }
+      throw cause;
+    }
   };
 }

@@ -12,6 +12,9 @@ export const ASSUMED_ACTIONS = [
   'content',
   'content_retrieve',
   'can_edit',
+  // Docs never gates this behind the EXTERNAL_API allowlist, so it is safe
+  // to assume available without probing it.
+  'favorite_list',
 ] as const;
 
 export interface Capabilities {
@@ -26,19 +29,24 @@ export interface Capabilities {
 const PROBE_DOCUMENT_ID = '00000000-0000-0000-0000-000000000000';
 
 // Docs' EXTERNAL_API allowlist rejects a blocked action with 403, and 403
-// only. A 404 means the action ran against the placeholder document
-// (success). A transient server/network/throttled failure -- already
-// retried up to 3 times inside DocsClient -- or an unexpected 400 says
-// nothing about whether the action is permitted; classifying those as
-// "disabled" would silently drop a working tool because of an outage
-// instead of surfacing the outage as a real error on first use. An
-// unrecognised, non-API error is treated conservatively as "disabled":
-// there is no evidence the action works.
+// only -- that is the one and only signal that means "disabled." A 404
+// means the action ran against the placeholder document (success). A
+// transient server/network/throttled failure reaches here only after
+// DocsClient has already exhausted 3 retries, so by this point it is a
+// sustained problem, not a blip -- which makes "disable the tool for the
+// whole session" an even worse response to it, not a safer one. An
+// unexpected 400 is equally silent about permission. And an unrecognised,
+// non-API exception is the most ambiguous signal there is, so it gets the
+// same treatment: assumed to work. This is deliberately asymmetric. A tool
+// that is wrongly left enabled fails loudly and classifiably the first time
+// it's actually used; a tool that is wrongly disabled just isn't there --
+// no error, no log line, nothing to search for. Only a documented 403 may
+// disable a tool; nothing else in this function does.
 function actionWorks(error: unknown): boolean {
   if (error instanceof DocsApiError) {
     return error.kind !== 'forbidden' && error.kind !== 'action_disabled';
   }
-  return false;
+  return true;
 }
 
 async function probe(run: () => Promise<unknown>): Promise<boolean> {
