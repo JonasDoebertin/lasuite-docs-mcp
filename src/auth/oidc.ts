@@ -1,0 +1,106 @@
+import type { StoredCredentials } from './store.js';
+
+export interface OidcEndpoints {
+  authorizationEndpoint: string;
+  tokenEndpoint: string;
+}
+
+interface TokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+}
+
+export async function discoverEndpoints(issuerUrl: string): Promise<OidcEndpoints> {
+  const url = `${issuerUrl.replace(/\/+$/, '')}/.well-known/openid-configuration`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`OIDC discovery failed at ${url} (HTTP ${response.status}).`);
+  }
+
+  const document = (await response.json()) as {
+    authorization_endpoint?: string;
+    token_endpoint?: string;
+  };
+
+  if (!document.authorization_endpoint || !document.token_endpoint) {
+    throw new Error(`OIDC discovery failed: ${url} omitted required endpoints.`);
+  }
+
+  return {
+    authorizationEndpoint: document.authorization_endpoint,
+    tokenEndpoint: document.token_endpoint,
+  };
+}
+
+async function postToken(
+  tokenEndpoint: string,
+  body: URLSearchParams,
+): Promise<TokenResponse> {
+  const response = await fetch(tokenEndpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body,
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as TokenResponse;
+
+  if (!response.ok || !payload.access_token) {
+    const reason = payload.error_description ?? payload.error ?? `HTTP ${response.status}`;
+    throw new Error(`Token request failed: ${reason}`);
+  }
+
+  return payload;
+}
+
+function toCredentials(
+  payload: TokenResponse,
+  fallbackRefreshToken?: string,
+): StoredCredentials {
+  return {
+    accessToken: payload.access_token,
+    refreshToken: payload.refresh_token ?? fallbackRefreshToken,
+    expiresAt: Date.now() + (payload.expires_in ?? 300) * 1000,
+  };
+}
+
+export async function exchangeCode(params: {
+  tokenEndpoint: string;
+  clientId: string;
+  code: string;
+  verifier: string;
+  redirectUri: string;
+}): Promise<StoredCredentials> {
+  const payload = await postToken(
+    params.tokenEndpoint,
+    new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: params.clientId,
+      code: params.code,
+      code_verifier: params.verifier,
+      redirect_uri: params.redirectUri,
+    }),
+  );
+
+  return toCredentials(payload);
+}
+
+export async function refreshAccessToken(params: {
+  tokenEndpoint: string;
+  clientId: string;
+  refreshToken: string;
+}): Promise<StoredCredentials> {
+  const payload = await postToken(
+    params.tokenEndpoint,
+    new URLSearchParams({
+      grant_type: 'refresh_token',
+      client_id: params.clientId,
+      refresh_token: params.refreshToken,
+    }),
+  );
+
+  return toCredentials(payload, params.refreshToken);
+}
