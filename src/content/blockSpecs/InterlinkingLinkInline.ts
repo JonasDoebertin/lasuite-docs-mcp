@@ -1,6 +1,6 @@
 import { createInlineContentSpec } from '@blocknote/core';
 
-import { COLLABORATION_SERVER_ORIGIN } from '@/env';
+import { COLLABORATION_SERVER_ORIGIN } from './env.js';
 
 const interlinkingPropSchema = {
   docId: { default: '' as string },
@@ -24,7 +24,7 @@ const interlinkingConfig = {
 // The instance origin the docs are served from. COLLABORATION_SERVER_ORIGIN may
 // hold a comma-separated list of allowed origins (see middlewares.ts); the first
 // one is the canonical instance URL.
-const instanceOrigin = COLLABORATION_SERVER_ORIGIN.split(',')[0].replace(
+const instanceOrigin = (COLLABORATION_SERVER_ORIGIN.split(',')[0] ?? '').replace(
   /\/+$/,
   '',
 );
