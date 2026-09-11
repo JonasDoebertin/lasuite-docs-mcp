@@ -16,6 +16,17 @@ export class AnchorNotFoundError extends Error {
   }
 }
 
+export class AmbiguousAnchorError extends Error {
+  constructor(anchor: string) {
+    super(
+      `Anchor "${anchor}" is ambiguous: the document contains both a literal heading with this ` +
+        'text and a generated duplicate-suffix anchor that collides with it. Rename one of the ' +
+        'headings to disambiguate.',
+    );
+    this.name = 'AmbiguousAnchorError';
+  }
+}
+
 export function blockText(block: DocsBlock): string {
   const content = (block as { content?: unknown }).content;
 
@@ -72,9 +83,12 @@ export function indexHeadings(blocks: DocsBlock[]): HeadingEntry[] {
 }
 
 export function resolveAnchor(entries: HeadingEntry[], anchor: string): HeadingEntry {
-  const match = entries.find((entry) => entry.anchor === anchor);
-  if (!match) {
+  const matches = entries.filter((entry) => entry.anchor === anchor);
+  if (matches.length === 0) {
     throw new AnchorNotFoundError(anchor, entries.map((entry) => entry.anchor));
   }
-  return match;
+  if (matches.length > 1) {
+    throw new AmbiguousAnchorError(anchor);
+  }
+  return matches[0]!;
 }

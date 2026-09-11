@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AmbiguousAnchorError,
   AnchorNotFoundError,
   indexHeadings,
   resolveAnchor,
@@ -58,5 +59,12 @@ describe('resolveAnchor', () => {
 
     expect(() => resolveAnchor(entries, 'Missing')).toThrow(AnchorNotFoundError);
     expect(() => resolveAnchor(entries, 'Missing')).toThrow(/Setup, Usage/);
+  });
+
+  it('throws AmbiguousAnchorError when a literal heading collides with a generated duplicate suffix', () => {
+    const blocks = [heading(2, 'Setup'), heading(2, 'Setup#2'), heading(2, 'Setup')];
+    const entries = indexHeadings(blocks);
+
+    expect(() => resolveAnchor(entries, 'Setup#2')).toThrow(AmbiguousAnchorError);
   });
 });
