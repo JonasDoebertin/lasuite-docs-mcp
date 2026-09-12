@@ -12,11 +12,29 @@ and edit Docs documents, and @-mention a favorited document straight into contex
 > **This is under active development and should be treated as experimental.**
 > Things break, behaviour changes without notice, and parts of it may not work
 > against your instance at all. It is not on npm yet, there is no release, and
-> the API surface it depends on includes undocumented Docs endpoints that can
-> change under it. Do not point it at documents you care about until you have
-> tried it against a scratch instance.
+> it depends on Docs API actions that are undocumented upstream and can change
+> under it. Do not point it at documents you care about before working through
+> [Before you point it at real documents](#before-you-point-it-at-real-documents).
 
-## Tools
+## Contents
+
+- [What it does](#what-it-does)
+- [Requirements](#requirements)
+- [Setup](#setup)
+  - [1. Register an OAuth client](#1-register-an-oauth-client)
+  - [2. Configure the Docs instance](#2-configure-the-docs-instance)
+  - [3. Install](#3-install)
+  - [4. Configure this tool](#4-configure-this-tool)
+  - [5. Log in](#5-log-in)
+  - [6. Check the instance](#6-check-the-instance)
+  - [7. Connect your MCP client](#7-connect-your-mcp-client)
+- [Before you point it at real documents](#before-you-point-it-at-real-documents)
+- [Troubleshooting](#troubleshooting)
+- [CLI reference](#cli-reference)
+- [Known limitations](#known-limitations)
+- [Development](#development)
+
+## What it does
 
 | Tool | What it does |
 | --- | --- |
@@ -30,22 +48,78 @@ and edit Docs documents, and @-mention a favorited document straight into contex
 Favorited documents are also exposed as MCP resources (`docs://document/<id>`),
 so they can be @-mentioned directly instead of fetched through `docs_read`.
 
-## Instance requirements
+## Requirements
 
-The Docs instance must run with token authentication enabled for external
-clients:
+| | |
+| --- | --- |
+| Docs instance | `v5.6.1`. Other versions may work, but see [BlockNote is pinned](#blocknote-is-pinned-to-0540-to-match-docs-v561). |
+| Docs configuration | Resource server enabled, plus an `EXTERNAL_API` allowlist. |
+| Identity provider | Any OIDC provider that supports authorization code with PKCE and loopback redirects. |
+| Node | 22 or newer. |
+
+Setup touches three systems in order: your identity provider, the Docs
+instance, and then your own machine. The first two usually need whoever
+administers them.
+
+## Setup
+
+### 1. Register an OAuth client
+
+This tool logs in as a **public** OAuth client. Register one with your
+identity provider:
+
+| Setting | Value |
+| --- | --- |
+| Client ID | `lasuite-docs-mcp` (you will pass this as `DOCS_OIDC_CLIENT_ID`) |
+| Client type | Public. No client secret. |
+| Grant type | Authorization code with PKCE, method `S256` |
+| Redirect URI | `http://127.0.0.1:*/callback` |
+| Scopes | Must include `openid` |
+
+The redirect URI needs that wildcard port. `login` starts a loopback listener
+on an ephemeral port and builds the redirect URI from whatever port the OS
+hands it, so the port is different on every login. A single fixed-port entry
+works once and then fails. Providers that follow
+[RFC 8252 §7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3)
+allow this; in Keycloak, `http://127.0.0.1:*/callback` is accepted verbatim.
+
+> [!TIP]
+> Consider requesting `offline_access` as well, via
+> `DOCS_OIDC_SCOPE="openid offline_access"`. The MCP server refreshes its token
+> silently but can never run the browser login itself, so once the refresh
+> token expires, every tool starts failing until you run `login` again by hand.
+> How long that takes depends on your provider's session settings.
+
+### 2. Configure the Docs instance
+
+Docs must run as an OIDC resource server:
 
 ```ini
 OIDC_RESOURCE_SERVER_ENABLED=True
-OIDC_OP_URL=...
-OIDC_OP_INTROSPECTION_ENDPOINT=...
-OIDC_RS_CLIENT_ID=...
-OIDC_RS_CLIENT_SECRET=...
-OIDC_RS_AUDIENCE_CLAIM=...
-OIDC_RS_ALLOWED_AUDIENCES=...
+OIDC_OP_URL=https://sso.example.org/realms/main
+OIDC_OP_INTROSPECTION_ENDPOINT=https://sso.example.org/realms/main/protocol/openid-connect/token/introspect
+OIDC_RS_CLIENT_ID=docs-resource-server
+OIDC_RS_CLIENT_SECRET=<secret of docs-resource-server>
+OIDC_RS_AUDIENCE_CLAIM=client_id
+OIDC_RS_ALLOWED_AUDIENCES=lasuite-docs-mcp
 ```
 
-It also needs an `EXTERNAL_API` allowlist covering what this server uses:
+> [!IMPORTANT]
+> **`OIDC_RS_ALLOWED_AUDIENCES` must contain this tool's client ID.** Docs
+> introspects every incoming token, reads the claim named by
+> `OIDC_RS_AUDIENCE_CLAIM` (default `client_id`), and rejects the request
+> unless that value appears in `OIDC_RS_ALLOWED_AUDIENCES`. Miss this and
+> login succeeds while every single tool call returns 403.
+
+Two different clients are involved here, and both are called a client ID:
+
+| Variable | Which client | Type |
+| --- | --- | --- |
+| `DOCS_OIDC_CLIENT_ID` | The one this tool logs in as, from step 1. | Public |
+| `OIDC_RS_CLIENT_ID` | The one Docs itself uses to call the introspection endpoint. | Confidential |
+
+Docs also needs an `EXTERNAL_API` allowlist covering the actions this server
+calls:
 
 ```json
 {
@@ -55,18 +129,14 @@ It also needs an `EXTERNAL_API` allowlist covering what this server uses:
       "list", "retrieve", "create", "children", "tree", "search",
       "content", "content_retrieve", "formatted_content", "can_edit"
     ]
-  },
-  "users": { "enabled": true, "actions": ["get_me"] }
+  }
 }
 ```
 
 `favorite_list` and `duplicate` are always permitted by Docs and need no entry.
-Ask the instance owner to set these values. Once the server runs, `doctor`
-tells you exactly which actions are still missing.
+Restart Docs after changing either block.
 
-## Setup
-
-### 1. Install
+### 3. Install
 
 There is no npm release yet, so install from source:
 
@@ -78,11 +148,7 @@ npm run build
 npm link
 ```
 
-Node 22 or newer is required.
-
-### 2. Configure
-
-Three environment variables are required:
+### 4. Configure this tool
 
 ```bash
 export DOCS_URL=https://docs.example.org
@@ -90,30 +156,38 @@ export DOCS_OIDC_ISSUER=https://sso.example.org/realms/main
 export DOCS_OIDC_CLIENT_ID=lasuite-docs-mcp
 ```
 
-Two more are optional: `DOCS_OIDC_SCOPE` (default `openid`) and `DOCS_PROFILE`
-(default `default`), which lets you keep more than one instance's credentials
-side by side.
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `DOCS_URL` | Yes | | Base URL of the Docs instance. |
+| `DOCS_OIDC_ISSUER` | Yes | | Issuer URL. Must serve `/.well-known/openid-configuration`. |
+| `DOCS_OIDC_CLIENT_ID` | Yes | | The public client from step 1. |
+| `DOCS_OIDC_SCOPE` | No | `openid` | See the note on `offline_access` above. |
+| `DOCS_PROFILE` | No | `default` | Keeps several instances' credentials side by side. |
 
-### 3. Log in
+### 5. Log in
 
 ```bash
 lasuite-docs-mcp login
 ```
 
-This opens a browser for an OAuth authorization-code-with-PKCE flow against your
+This opens a browser for an authorization-code-with-PKCE flow against your
 identity provider and stores the resulting tokens at
 `~/.config/lasuite-docs-mcp/<profile>.json`, mode 0600.
 
-### 4. Check the instance
+### 6. Check the instance
 
 ```bash
 lasuite-docs-mcp doctor
 ```
 
-`doctor` probes each action Docs might have disabled and, if anything is
-blocked, prints the exact `EXTERNAL_API` JSON to set.
+`doctor` probes four of the ten actions (`list`, `search`, `tree`, and
+`formatted_content`) and prints the full `EXTERNAL_API` value to set if any of
+them is blocked. The other six cannot be probed without creating or modifying
+something, so they are assumed available and report a classified error on first
+use instead. A clean `doctor` is a good sign rather than a guarantee that
+editing works.
 
-## Connecting an MCP client
+### 7. Connect your MCP client
 
 For Claude Code:
 
@@ -129,9 +203,39 @@ For any other client, run `lasuite-docs-mcp-server` over stdio with the same
 environment.
 
 > [!IMPORTANT]
-> The server binary never performs the login flow. It only reads the credentials
-> that `login` already stored. Run `login` from a terminal first, because a
-> server launched by an MCP client cannot open a browser for you.
+> The server binary never performs the login flow. It only reads the
+> credentials that `login` already stored. Run `login` from a terminal first,
+> because a server launched by an MCP client has no browser to open.
+
+## Before you point it at real documents
+
+Writes replace a document's Yjs state in full, and the conversion that produces
+that state runs against block specs vendored from Docs `v5.6.1`. If your
+instance's block schema differs, a write can fail or mangle content.
+
+`npm run check:drift` does not tell you this. It compares the vendored files
+against the pinned upstream release, not against your instance. The only real
+check is the contract suite:
+
+```bash
+npm run test:contract
+```
+
+Point it at a scratch instance, not your real one. It creates documents and
+deliberately never deletes them. Once it passes there, switch `DOCS_URL` over.
+
+## Troubleshooting
+
+| Symptom | Likely cause |
+| --- | --- |
+| Browser shows "invalid redirect URI" during login | The redirect URI is not registered with a wildcard port. See [step 1](#1-register-an-oauth-client). |
+| Login succeeds, but every tool call returns 403 | `DOCS_OIDC_CLIENT_ID` is not in `OIDC_RS_ALLOWED_AUDIENCES`, or `OIDC_RS_AUDIENCE_CLAIM` does not match the claim your provider sends. |
+| "The Docs instance does not permit the *X* action" | `X` is missing from the `EXTERNAL_API` allowlist. Run `doctor` for the exact value to set. |
+| Some tools never appear in the client at all | The startup probe got a 403 for them. Run `doctor`, fix the allowlist, restart the client. |
+| "Not authenticated with Docs. Run login" after idling | The refresh token expired. Run `login` again, and consider `offline_access`. |
+| `docs_edit` says someone has the document open | A collaborative session is active. This is deliberate, see [Known limitations](#editing-is-refused-while-someone-has-the-document-open). |
+| `ConversionError`, or a write that mentions schema drift | The instance's block schema disagrees with the vendored specs. Re-run `npm run vendor` and the contract suite. |
+| `doctor` is clean but creating or editing fails | Only four actions are probed. The rest fail at call time by design. |
 
 ## CLI reference
 
@@ -209,9 +313,6 @@ npx tsc --noEmit          # typecheck
 npm run check:drift       # vendored block specs vs pinned upstream
 npm run test:contract     # live-instance suite, see tests/contract/README.md
 ```
-
-The contract suite talks to a real Docs instance, creates documents, and never
-deletes them. Point it at a scratch instance only.
 
 See [CLAUDE.md](CLAUDE.md) for the architecture and the invariants worth knowing
 before changing the edit or conversion paths.

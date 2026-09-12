@@ -48,10 +48,7 @@ export function renderDoctorReport(capabilities: Capabilities): string {
     'Set this EXTERNAL_API value on the Docs instance and restart it:',
     '',
     JSON.stringify(
-      {
-        documents: { enabled: true, actions: REQUIRED_ACTIONS },
-        users: { enabled: true, actions: ['get_me'] },
-      },
+      { documents: { enabled: true, actions: REQUIRED_ACTIONS } },
       null,
       2,
     ),
