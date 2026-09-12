@@ -85,10 +85,19 @@ allow this; in Keycloak, `http://127.0.0.1:*/callback` is accepted verbatim.
 
 > [!TIP]
 > Consider requesting `offline_access` as well, via
-> `DOCS_OIDC_SCOPE="openid offline_access"`. The MCP server refreshes its token
-> silently but can never run the browser login itself, so once the refresh
-> token expires, every tool starts failing until you run `login` again by hand.
-> How long that takes depends on your provider's session settings.
+> `DOCS_OIDC_SCOPE="openid offline_access"`.
+>
+> Without it, most providers tie the refresh token to your browser SSO session
+> and expire it after a short idle period, often 30 minutes. The MCP server
+> renews its access token from that refresh token silently, but it runs without
+> a terminal or a browser, so it can never redo the login flow itself. When the
+> refresh token dies, every tool starts returning "Not authenticated" until you
+> run `login` again by hand.
+>
+> `offline_access` asks for a refresh token that outlives the browser session,
+> which is what makes a long-running MCP server practical. The trade is a
+> credential on disk that stays valid for much longer, so skip it if that is
+> not acceptable and accept re-running `login` instead.
 
 ### 2. Configure the Docs instance
 
@@ -102,7 +111,10 @@ OIDC_RS_CLIENT_ID=docs-resource-server
 OIDC_RS_CLIENT_SECRET=<secret of docs-resource-server>
 OIDC_RS_AUDIENCE_CLAIM=client_id
 OIDC_RS_ALLOWED_AUDIENCES=lasuite-docs-mcp
+EXTERNAL_API={"documents":{"enabled":True,"actions":["list","retrieve","create","children","tree","search","content","content_retrieve","formatted_content","can_edit"]}}
 ```
+
+That is the complete set. Restart Docs afterwards.
 
 > [!IMPORTANT]
 > **`OIDC_RS_ALLOWED_AUDIENCES` must contain this tool's client ID.** Docs
@@ -118,23 +130,22 @@ Two different clients are involved here, and both are called a client ID:
 | `DOCS_OIDC_CLIENT_ID` | The one this tool logs in as, from step 1. | Public |
 | `OIDC_RS_CLIENT_ID` | The one Docs itself uses to call the introspection endpoint. | Confidential |
 
-Docs also needs an `EXTERNAL_API` allowlist covering the actions this server
-calls:
+#### Notes on `EXTERNAL_API` and allowed audiences
 
-```json
-{
-  "documents": {
-    "enabled": true,
-    "actions": [
-      "list", "retrieve", "create", "children", "tree", "search",
-      "content", "content_retrieve", "formatted_content", "can_edit"
-    ]
-  }
-}
-```
+`EXTERNAL_API` gates which API actions an external client may call. Every
+action in the list above is one this server actually calls, so none of them can
+be dropped. `favorite_list` is always permitted by Docs and needs no entry,
+which is why the resource listing works without one.
 
-`favorite_list` and `duplicate` are always permitted by Docs and need no entry.
-Restart Docs after changing either block.
+> [!CAUTION]
+> **`EXTERNAL_API` is a Python literal, not JSON.** Docs parses it with
+> `ast.literal_eval`, so the boolean must be `True`, capitalised. A copied JSON
+> snippet with lowercase `true` makes Docs fail at startup with
+> `Cannot interpret dict value`. Keeping the value free of spaces also avoids
+> quoting surprises in `.env` files and Compose.
+
+`OIDC_RS_ALLOWED_AUDIENCES` is a comma-separated list, so several clients can
+be allowed at once: `OIDC_RS_ALLOWED_AUDIENCES=lasuite-docs-mcp,other-client`.
 
 ### 3. Install
 
@@ -234,7 +245,7 @@ deliberately never deletes them. Once it passes there, switch `DOCS_URL` over.
 | Some tools never appear in the client at all | The startup probe got a 403 for them. Run `doctor`, fix the allowlist, restart the client. |
 | "Not authenticated with Docs. Run login" after idling | The refresh token expired. Run `login` again, and consider `offline_access`. |
 | `docs_edit` says someone has the document open | A collaborative session is active. This is deliberate, see [Known limitations](#editing-is-refused-while-someone-has-the-document-open). |
-| `ConversionError`, or a write that mentions schema drift | The instance's block schema disagrees with the vendored specs. Re-run `npm run vendor` and the contract suite. |
+| `ConversionError`, or a write that mentions schema drift | The instance's block schema disagrees with the vendored specs. Repin `REF` in `scripts/vendor-blockspecs.sh` to the instance's Docs version, then re-vendor. |
 | `doctor` is clean but creating or editing fails | Only four actions are probed. The rest fail at call time by design. |
 
 ## CLI reference
@@ -290,9 +301,11 @@ behind a proxy that does not forward them, the check cannot run at all, and
 ### BlockNote is pinned to `0.54.0` to match Docs `v5.6.1`
 
 Content conversion runs `@blocknote/server-util` locally against block specs
-vendored from that Docs release. Upgrading the target instance to a version with
-a different block schema may require re-running `npm run vendor` and the
-contract suite before this tool can be trusted against it again.
+vendored from that Docs release. Targeting an instance whose block schema
+differs means repinning `REF` in `scripts/vendor-blockspecs.sh`, running
+`npm run vendor`, and getting `npm run test:contract` green before writes can
+be trusted again. Re-running `npm run vendor` on its own changes nothing: it
+re-fetches the same pinned release.
 
 ### Only the first 50 favorites become resources
 
@@ -308,9 +321,11 @@ responses.
 ## Development
 
 ```bash
+npm run build             # compile to dist/
 npm test                  # unit tests
 npx tsc --noEmit          # typecheck
-npm run check:drift       # vendored block specs vs pinned upstream
+npm run vendor            # re-fetch block specs from the ref pinned in scripts/
+npm run check:drift       # vendored block specs vs that pinned ref
 npm run test:contract     # live-instance suite, see tests/contract/README.md
 ```
 

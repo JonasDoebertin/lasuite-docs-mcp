@@ -4,8 +4,9 @@ import type { DocsBlock } from '../content/types.js';
 
 const REMEDIATION =
   'This may mean the vendored block schema has drifted from this Docs instance. ' +
-  'Run `npm run vendor` to refresh it, then `npm run test:contract` against a ' +
-  'live instance before trusting writes again.';
+  'Check that the ref pinned in scripts/vendor-blockspecs.sh matches the ' +
+  'instance\'s Docs version, re-run `npm run vendor`, then `npm run test:contract` ' +
+  'against a live instance before trusting writes again.';
 
 // Conversion failures reach here as whatever @blocknote/server-util happens
 // to throw internally -- typically a bare TypeError like "Cannot read
