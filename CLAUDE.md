@@ -57,6 +57,13 @@ formatted-content read that does not decode to zero blocks locally throws
 `UnreadableDocumentError`, and a changed ETag throws `StaleDocumentError`. The
 asymmetry is intentional: the cost of guessing wrong is losing someone's work.
 
+Which refusal fires matters almost as much as refusing. The ETag read and the
+blocks read are separate requests, so an ordinary concurrent write can produce
+the falsely-empty signature with nothing wrong with the document or the schema.
+That case re-checks the ETag and reports staleness instead, because "read it
+again and retry" resolves it and "your vendored schema has drifted" sends the
+reader somewhere useless.
+
 ## Documents are Yjs state, not markdown
 
 A Docs document is a Yjs CRDT state. `content/convert.ts` is the only bridge:

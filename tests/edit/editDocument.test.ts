@@ -22,7 +22,7 @@ const para = (text: string) => ({ type: 'paragraph', content: text });
 function stubClient(options: {
   blocks?: unknown[];
   canEdit?: boolean;
-  etags?: string[];
+  etags?: (string | null)[];
   base64?: string;
 } = {}) {
   const client = new DocsClient(async () => new Response('{}', { status: 200 }));
@@ -33,12 +33,16 @@ function stubClient(options: {
   const getFormattedContent = vi.spyOn(client, 'getFormattedContent').mockResolvedValue(
     options.blocks ?? [heading(2, 'One'), para('a'), heading(2, 'Two'), para('b')],
   );
-  const getContentWithEtag = vi.spyOn(client, 'getContentWithEtag').mockImplementation(() =>
-    Promise.resolve({
+  // Clamps to the last entry so a test only needs to name the reads it cares
+  // about, while still distinguishing an explicit null (the instance sends no
+  // ETag on that read) from a short list.
+  const getContentWithEtag = vi.spyOn(client, 'getContentWithEtag').mockImplementation(() => {
+    const index = Math.min(etagCall++, etags.length - 1);
+    return Promise.resolve({
       base64: options.base64 ?? '',
-      etag: etags[etagCall++] ?? etags.at(-1) ?? null,
-    }),
-  );
+      etag: index < 0 ? null : etags[index] ?? null,
+    });
+  });
   const patch = vi.spyOn(client, 'patchContent').mockResolvedValue(undefined);
 
   return { client, patch, getFormattedContent, getContentWithEtag };
@@ -220,6 +224,43 @@ describe('editDocument', () => {
       para('a real paragraph nobody told us about'),
     ] as never);
     const { client, patch } = stubClient({ blocks: [], base64: realState });
+
+    await expect(
+      editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
+    ).rejects.toThrow(UnreadableDocumentError);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('reports a concurrent edit as staleness rather than an unreadable document', async () => {
+    // The ETag read and the blocks read are separate requests. A write that
+    // empties the document between them leaves formatted-content reporting no
+    // blocks while the already-captured raw state still decodes to real
+    // content, which is indistinguishable from a falsely-empty read on the
+    // snapshots alone. The moved ETag is what tells the two apart.
+    const realState = blocksToYjsBase64([para('written before the concurrent edit')] as never);
+    const { client, patch } = stubClient({
+      blocks: [],
+      base64: realState,
+      etags: ['"v1"', '"v2"'],
+    });
+
+    await expect(
+      editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),
+    ).rejects.toThrow(StaleDocumentError);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('does not call an appearing ETag a concurrent edit when the first read had none', async () => {
+    // An instance that sends no ETag on one read and one on the next has not
+    // told us the document moved, only that the header is unreliable. Reading
+    // a revision change into that would turn a genuine falsely-empty read into
+    // a phantom "retry and it will work" that never resolves.
+    const realState = blocksToYjsBase64([para('content the formatted read missed')] as never);
+    const { client, patch } = stubClient({
+      blocks: [],
+      base64: realState,
+      etags: [null, '"v2"'],
+    });
 
     await expect(
       editDocument(client, { id: '1', operation: 'append', markdown: 'tail' }),

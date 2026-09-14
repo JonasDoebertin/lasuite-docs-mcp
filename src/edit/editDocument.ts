@@ -126,6 +126,22 @@ export async function editDocument(
   if (existing.length === 0) {
     const emptyReadCheck = checkEmptyRead(base64Before);
     if (emptyReadCheck.falselyEmpty) {
+      // The raw state and the formatted read are two separate requests, so a
+      // write landing between them produces this exact disagreement with
+      // nothing wrong with the document or the schema: the raw snapshot still
+      // holds the content that the formatted read, taken afterwards, no longer
+      // sees. Ask whether the document simply moved before blaming the read. A
+      // changed ETag means the two snapshots are different revisions, which is
+      // the staleness case the comparison further down already handles, and
+      // "read it again and retry" is the advice that actually resolves it.
+      // Only 'mismatch' can be explained this way; a state we cannot decode at
+      // all is unreadable whether or not anyone else was writing.
+      if (emptyReadCheck.reason === 'mismatch' && etagBefore !== null) {
+        const { etag: etagNow } = await client.getContentWithEtag(params.id);
+        if (etagNow !== etagBefore) {
+          throw new StaleDocumentError();
+        }
+      }
       throw new UnreadableDocumentError(emptyReadCheck.reason, emptyReadCheck.cause);
     }
   }
