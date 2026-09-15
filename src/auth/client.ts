@@ -46,6 +46,7 @@ async function currentCredentials(config: Config): Promise<StoredCredentials> {
       tokenEndpoint: endpoints.tokenEndpoint,
       clientId: config.clientId,
       refreshToken: stored.refreshToken,
+      resource: config.resource,
     });
     await writeCredentials(config.profile, refreshed);
     return refreshed;

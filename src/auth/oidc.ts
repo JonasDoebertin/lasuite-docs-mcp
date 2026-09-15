@@ -56,6 +56,12 @@ async function postToken(
   return payload;
 }
 
+function withResource(body: URLSearchParams, resource?: string): void {
+  if (resource) {
+    body.set('resource', resource);
+  }
+}
+
 function toCredentials(
   payload: TokenResponse,
   fallbackRefreshToken?: string,
@@ -73,34 +79,36 @@ export async function exchangeCode(params: {
   code: string;
   verifier: string;
   redirectUri: string;
+  resource?: string;
 }): Promise<StoredCredentials> {
-  const payload = await postToken(
-    params.tokenEndpoint,
-    new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: params.clientId,
-      code: params.code,
-      code_verifier: params.verifier,
-      redirect_uri: params.redirectUri,
-    }),
-  );
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    client_id: params.clientId,
+    code: params.code,
+    code_verifier: params.verifier,
+    redirect_uri: params.redirectUri,
+  });
+  withResource(body, params.resource);
 
-  return toCredentials(payload);
+  return toCredentials(await postToken(params.tokenEndpoint, body));
 }
 
 export async function refreshAccessToken(params: {
   tokenEndpoint: string;
   clientId: string;
   refreshToken: string;
+  resource?: string;
 }): Promise<StoredCredentials> {
-  const payload = await postToken(
-    params.tokenEndpoint,
-    new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: params.clientId,
-      refresh_token: params.refreshToken,
-    }),
-  );
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    client_id: params.clientId,
+    refresh_token: params.refreshToken,
+  });
+  // Carried through the refresh as well: a provider that scopes the audience
+  // to the resources named in the request would otherwise hand back a token
+  // the resource server can no longer introspect, turning a working session
+  // into a mysterious 403 at the first refresh rather than at login.
+  withResource(body, params.resource);
 
-  return toCredentials(payload, params.refreshToken);
+  return toCredentials(await postToken(params.tokenEndpoint, body), params.refreshToken);
 }

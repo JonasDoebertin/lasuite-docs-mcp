@@ -13,6 +13,10 @@ export interface Config {
   clientId: string;
   scope: string;
   profile: string;
+  // RFC 8707 resource indicator. Optional because it only matters when the
+  // Docs instance and this client are separate registrations at the provider
+  // and the token has to name Docs as an audience for it to be introspectable.
+  resource?: string;
 }
 
 const httpUrl = z
@@ -35,6 +39,7 @@ const schema = z.object({
   DOCS_OIDC_CLIENT_ID: z.string().min(1),
   DOCS_OIDC_SCOPE: z.string().min(1).default('openid'),
   DOCS_PROFILE: profileName.default('default'),
+  DOCS_OIDC_RESOURCE: z.string().min(1).optional(),
 });
 
 // Validates and defaults DOCS_PROFILE alone, for commands (`logout`) that
@@ -68,5 +73,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     clientId: parsed.data.DOCS_OIDC_CLIENT_ID,
     scope: parsed.data.DOCS_OIDC_SCOPE,
     profile: parsed.data.DOCS_PROFILE,
+    resource: parsed.data.DOCS_OIDC_RESOURCE,
   };
 }

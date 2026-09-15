@@ -129,6 +129,65 @@ async function waitForAuthorizeUrl(): Promise<CapturedAuthorizeUrl> {
   return { state, redirectUri: new URL(redirectUriParam) };
 }
 
+describe('runLogin resource indicator', () => {
+  it('asks for the configured API resource in both the authorize URL and the token request', async () => {
+    // RFC 8707. Without it the provider issues a token audienced only at this
+    // client, which a separate resource server cannot introspect.
+    let tokenBody = '';
+    stubFetch((url, init) => {
+      if (url.endsWith('/.well-known/openid-configuration')) {
+        return json({
+          authorization_endpoint: 'https://idp.example.org/auth',
+          token_endpoint: 'https://idp.example.org/token',
+        });
+      }
+      if (url === 'https://idp.example.org/token') {
+        tokenBody = String(init?.body ?? '');
+        return json({ access_token: 'at', refresh_token: 'rt', expires_in: 300 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const runLoginPromise = runLogin({ ...config, resource: 'https://docs.example.org' });
+    const { state, redirectUri } = await waitForAuthorizeUrl();
+
+    const authorizeUrl = new URL(capturedBrowserUrl ?? '');
+    expect(authorizeUrl.searchParams.get('resource')).toBe('https://docs.example.org');
+
+    await requestCallback(`${redirectUri.origin}/callback?code=abc&state=${state}`);
+    await runLoginPromise;
+
+    expect(new URLSearchParams(tokenBody).get('resource')).toBe('https://docs.example.org');
+  });
+
+  it('omits the resource parameter entirely when none is configured', async () => {
+    let tokenBody = '';
+    stubFetch((url, init) => {
+      if (url.endsWith('/.well-known/openid-configuration')) {
+        return json({
+          authorization_endpoint: 'https://idp.example.org/auth',
+          token_endpoint: 'https://idp.example.org/token',
+        });
+      }
+      if (url === 'https://idp.example.org/token') {
+        tokenBody = String(init?.body ?? '');
+        return json({ access_token: 'at', refresh_token: 'rt', expires_in: 300 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const runLoginPromise = runLogin(config);
+    const { state, redirectUri } = await waitForAuthorizeUrl();
+
+    expect(new URL(capturedBrowserUrl ?? '').searchParams.has('resource')).toBe(false);
+
+    await requestCallback(`${redirectUri.origin}/callback?code=abc&state=${state}`);
+    await runLoginPromise;
+
+    expect(new URLSearchParams(tokenBody).has('resource')).toBe(false);
+  });
+});
+
 describe('runLogin callback handling', () => {
   it('rejects with a state mismatch, and never the provider error, when a present state does not match', async () => {
     stubDiscoveryAndTokenEndpoint();

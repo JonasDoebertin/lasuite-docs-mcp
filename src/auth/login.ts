@@ -143,8 +143,7 @@ function awaitCallback(
 
       redirectUri = `http://127.0.0.1:${address.port}/callback`;
 
-      const authorizeUrl = new URL(authorizationEndpoint);
-      authorizeUrl.search = new URLSearchParams({
+      const authorizeParams = new URLSearchParams({
         response_type: 'code',
         client_id: config.clientId,
         redirect_uri: redirectUri,
@@ -152,7 +151,13 @@ function awaitCallback(
         state,
         code_challenge: challenge,
         code_challenge_method: 'S256',
-      }).toString();
+      });
+      if (config.resource) {
+        authorizeParams.set('resource', config.resource);
+      }
+
+      const authorizeUrl = new URL(authorizationEndpoint);
+      authorizeUrl.search = authorizeParams.toString();
 
       process.stderr.write(`Opening ${authorizeUrl.toString()}\n`);
       openBrowser(authorizeUrl.toString());
@@ -178,6 +183,7 @@ export async function runLogin(config: Config): Promise<void> {
     code,
     verifier,
     redirectUri,
+    resource: config.resource,
   });
 
   await writeCredentials(config.profile, credentials);

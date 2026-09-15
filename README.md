@@ -83,6 +83,20 @@ works once and then fails. Providers that follow
 [RFC 8252 §7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3)
 allow this; in Keycloak, `http://127.0.0.1:*/callback` is accepted verbatim.
 
+> [!IMPORTANT]
+> **If your provider audiences access tokens at the requesting client only,
+> Docs cannot introspect them.** Docs authenticates as its own, separate client
+> when it calls the introspection endpoint, and providers commonly answer
+> `{"active": false}` for a token that does not name the caller as an audience.
+> The symptom is a login that succeeds and an instance that rejects everything.
+>
+> The fix is to register the Docs instance as an API or resource at your
+> provider, grant this client access to it, and set `DOCS_OIDC_RESOURCE` to that
+> resource identifier. The login then requests a token for that audience
+> (RFC 8707) on both the authorization and the refresh request. Pocket ID
+> supports this under Settings > APIs and rejects unregistered values with
+> `invalid_target`.
+
 > [!TIP]
 > Consider requesting `offline_access` as well, via
 > `DOCS_OIDC_SCOPE="openid offline_access"`.
@@ -173,6 +187,7 @@ export DOCS_OIDC_CLIENT_ID=lasuite-docs-mcp
 | `DOCS_OIDC_ISSUER` | Yes | | Issuer URL. Must serve `/.well-known/openid-configuration`. |
 | `DOCS_OIDC_CLIENT_ID` | Yes | | The public client from step 1. |
 | `DOCS_OIDC_SCOPE` | No | `openid` | See the note on `offline_access` above. |
+| `DOCS_OIDC_RESOURCE` | No | | RFC 8707 resource indicator. See the note below on audiences. |
 | `DOCS_PROFILE` | No | `default` | Keeps several instances' credentials side by side. |
 
 ### 5. Log in
@@ -240,6 +255,7 @@ deliberately never deletes them. Once it passes there, switch `DOCS_URL` over.
 | Symptom | Likely cause |
 | --- | --- |
 | Browser shows "invalid redirect URI" during login | The redirect URI is not registered with a wildcard port. See [step 1](#1-register-an-oauth-client). |
+| Introspection returns `{"active": false}` for a valid token | The provider will not introspect a token that does not name the Docs resource server as an audience. Register the API and set `DOCS_OIDC_RESOURCE`. |
 | Login succeeds, but every tool call returns 403 | `DOCS_OIDC_CLIENT_ID` is not in `OIDC_RS_ALLOWED_AUDIENCES`, or `OIDC_RS_AUDIENCE_CLAIM` does not match the claim your provider sends. |
 | "The Docs instance does not permit the *X* action" | `X` is missing from the `EXTERNAL_API` allowlist. Run `doctor` for the exact value to set. |
 | Some tools never appear in the client at all | The startup probe got a 403 for them. Run `doctor`, fix the allowlist, restart the client. |
