@@ -62,6 +62,16 @@ function withResource(body: URLSearchParams, resource?: string): void {
   }
 }
 
+// client_secret_post rather than an Authorization header: both are listed by
+// every provider that supports confidential clients at all, and keeping the
+// credential in the form body keeps it out of proxy access logs that record
+// request headers.
+function withClientSecret(body: URLSearchParams, clientSecret?: string): void {
+  if (clientSecret) {
+    body.set('client_secret', clientSecret);
+  }
+}
+
 function toCredentials(
   payload: TokenResponse,
   fallbackRefreshToken?: string,
@@ -80,6 +90,7 @@ export async function exchangeCode(params: {
   verifier: string;
   redirectUri: string;
   resource?: string;
+  clientSecret?: string;
 }): Promise<StoredCredentials> {
   const body = new URLSearchParams({
     grant_type: 'authorization_code',
@@ -89,6 +100,7 @@ export async function exchangeCode(params: {
     redirect_uri: params.redirectUri,
   });
   withResource(body, params.resource);
+  withClientSecret(body, params.clientSecret);
 
   return toCredentials(await postToken(params.tokenEndpoint, body));
 }
@@ -98,6 +110,7 @@ export async function refreshAccessToken(params: {
   clientId: string;
   refreshToken: string;
   resource?: string;
+  clientSecret?: string;
 }): Promise<StoredCredentials> {
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
@@ -109,6 +122,7 @@ export async function refreshAccessToken(params: {
   // the resource server can no longer introspect, turning a working session
   // into a mysterious 403 at the first refresh rather than at login.
   withResource(body, params.resource);
+  withClientSecret(body, params.clientSecret);
 
   return toCredentials(await postToken(params.tokenEndpoint, body), params.refreshToken);
 }

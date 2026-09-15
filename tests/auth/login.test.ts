@@ -188,6 +188,56 @@ describe('runLogin resource indicator', () => {
   });
 });
 
+describe('runLogin client authentication', () => {
+  function stubCapturingTokenBody(sink: { body: string }) {
+    stubFetch((url, init) => {
+      if (url.endsWith('/.well-known/openid-configuration')) {
+        return json({
+          authorization_endpoint: 'https://idp.example.org/auth',
+          token_endpoint: 'https://idp.example.org/token',
+        });
+      }
+      if (url === 'https://idp.example.org/token') {
+        sink.body = String(init?.body ?? '');
+        return json({ access_token: 'at', refresh_token: 'rt', expires_in: 300 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+  }
+
+  it('authenticates with the client secret at the token endpoint when one is configured', async () => {
+    // Needed against providers that only let a client introspect its own
+    // tokens: the resource server has to authenticate as this same client,
+    // which means this client can no longer be a public one.
+    const sink = { body: '' };
+    stubCapturingTokenBody(sink);
+
+    const runLoginPromise = runLogin({ ...config, clientSecret: 's3cret' });
+    const { state, redirectUri } = await waitForAuthorizeUrl();
+
+    // The secret authenticates the back-channel token request only. Putting it
+    // in the front-channel authorize URL would leak it through the browser.
+    expect(new URL(capturedBrowserUrl ?? '').searchParams.has('client_secret')).toBe(false);
+
+    await requestCallback(`${redirectUri.origin}/callback?code=abc&state=${state}`);
+    await runLoginPromise;
+
+    expect(new URLSearchParams(sink.body).get('client_secret')).toBe('s3cret');
+  });
+
+  it('stays a public client when no secret is configured', async () => {
+    const sink = { body: '' };
+    stubCapturingTokenBody(sink);
+
+    const runLoginPromise = runLogin(config);
+    const { state, redirectUri } = await waitForAuthorizeUrl();
+    await requestCallback(`${redirectUri.origin}/callback?code=abc&state=${state}`);
+    await runLoginPromise;
+
+    expect(new URLSearchParams(sink.body).has('client_secret')).toBe(false);
+  });
+});
+
 describe('runLogin callback handling', () => {
   it('rejects with a state mismatch, and never the provider error, when a present state does not match', async () => {
     stubDiscoveryAndTokenEndpoint();

@@ -71,7 +71,7 @@ identity provider:
 | Setting | Value |
 | --- | --- |
 | Client ID | `lasuite-docs-mcp` (you will pass this as `DOCS_OIDC_CLIENT_ID`) |
-| Client type | Public. No client secret. |
+| Client type | Public, no client secret, unless the note below applies. |
 | Grant type | Authorization code with PKCE, method `S256` |
 | Redirect URI | `http://127.0.0.1:*/callback` |
 | Scopes | Must include `openid` |
@@ -84,18 +84,25 @@ works once and then fails. Providers that follow
 allow this; in Keycloak, `http://127.0.0.1:*/callback` is accepted verbatim.
 
 > [!IMPORTANT]
-> **If your provider audiences access tokens at the requesting client only,
-> Docs cannot introspect them.** Docs authenticates as its own, separate client
-> when it calls the introspection endpoint, and providers commonly answer
-> `{"active": false}` for a token that does not name the caller as an audience.
-> The symptom is a login that succeeds and an instance that rejects everything.
+> **Check how your provider guards its introspection endpoint before you settle
+> on a public client.** Docs verifies every request by introspecting the token,
+> authenticating as its own separate client while doing so. Providers disagree
+> about whether that is allowed, and getting it wrong produces a login that
+> succeeds followed by an instance that rejects everything.
 >
-> The fix is to register the Docs instance as an API or resource at your
-> provider, grant this client access to it, and set `DOCS_OIDC_RESOURCE` to that
-> resource identifier. The login then requests a token for that audience
-> (RFC 8707) on both the authorization and the refresh request. Pocket ID
-> supports this under Settings > APIs and rejects unregistered values with
-> `invalid_target`.
+> Two behaviours show up in practice:
+>
+> - **Only the token's own client may introspect it.** Pocket ID works this way
+>   and says so in `introspection_handler.go`: "A client may only introspect its
+>   own tokens." No audience, resource or API grant changes that. The only fix is
+>   to make this client confidential, set `DOCS_OIDC_CLIENT_SECRET`, and give Docs
+>   the *same* credentials as `OIDC_RS_CLIENT_ID` / `OIDC_RS_CLIENT_SECRET`. The
+>   resource server is then the same client as the token holder. The cost is a
+>   secret on every machine that runs this tool.
+> - **The token must name the resource server as an audience.** Register the Docs
+>   instance as an API or resource at the provider, grant this client access, and
+>   set `DOCS_OIDC_RESOURCE` to that identifier. The login then asks for that
+>   audience (RFC 8707) on the authorization and the refresh request.
 
 > [!TIP]
 > Consider requesting `offline_access` as well, via
@@ -187,7 +194,8 @@ export DOCS_OIDC_CLIENT_ID=lasuite-docs-mcp
 | `DOCS_OIDC_ISSUER` | Yes | | Issuer URL. Must serve `/.well-known/openid-configuration`. |
 | `DOCS_OIDC_CLIENT_ID` | Yes | | The public client from step 1. |
 | `DOCS_OIDC_SCOPE` | No | `openid` | See the note on `offline_access` above. |
-| `DOCS_OIDC_RESOURCE` | No | | RFC 8707 resource indicator. See the note below on audiences. |
+| `DOCS_OIDC_CLIENT_SECRET` | No | | Only when the provider forces a confidential client. See the note in step 1. |
+| `DOCS_OIDC_RESOURCE` | No | | RFC 8707 resource indicator. See the note in step 1. |
 | `DOCS_PROFILE` | No | `default` | Keeps several instances' credentials side by side. |
 
 ### 5. Log in
@@ -255,7 +263,8 @@ deliberately never deletes them. Once it passes there, switch `DOCS_URL` over.
 | Symptom | Likely cause |
 | --- | --- |
 | Browser shows "invalid redirect URI" during login | The redirect URI is not registered with a wildcard port. See [step 1](#1-register-an-oauth-client). |
-| Introspection returns `{"active": false}` for a valid token | The provider will not introspect a token that does not name the Docs resource server as an audience. Register the API and set `DOCS_OIDC_RESOURCE`. |
+| Introspection returns `{"active": false}` for a valid token | The provider refuses to introspect a token issued to a different client. Point `OIDC_RS_CLIENT_ID` at this client and set `DOCS_OIDC_CLIENT_SECRET`, or name the resource server as an audience via `DOCS_OIDC_RESOURCE`. |
+| Docs answers HTTP 400 with a bare Django "Bad Request" page | django-lasuite raises `SuspiciousOperation` when introspection fails, which Django renders as a 400. Introspect the token by hand to see the real reason. |
 | Login succeeds, but every tool call returns 403 | `DOCS_OIDC_CLIENT_ID` is not in `OIDC_RS_ALLOWED_AUDIENCES`, or `OIDC_RS_AUDIENCE_CLAIM` does not match the claim your provider sends. |
 | "The Docs instance does not permit the *X* action" | `X` is missing from the `EXTERNAL_API` allowlist. Run `doctor` for the exact value to set. |
 | Some tools never appear in the client at all | The startup probe got a 403 for them. Run `doctor`, fix the allowlist, restart the client. |

@@ -184,6 +184,7 @@ export async function runLogin(config: Config): Promise<void> {
     verifier,
     redirectUri,
     resource: config.resource,
+    clientSecret: config.clientSecret,
   });
 
   await writeCredentials(config.profile, credentials);

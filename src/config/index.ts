@@ -13,6 +13,11 @@ export interface Config {
   clientId: string;
   scope: string;
   profile: string;
+  // Set only when the provider forces this client to be confidential. Some
+  // providers let a client introspect nothing but its own tokens, which makes
+  // the resource server authenticate as this client, which in turn rules out
+  // a public one.
+  clientSecret?: string;
   // RFC 8707 resource indicator. Optional because it only matters when the
   // Docs instance and this client are separate registrations at the provider
   // and the token has to name Docs as an audience for it to be introspectable.
@@ -40,6 +45,7 @@ const schema = z.object({
   DOCS_OIDC_SCOPE: z.string().min(1).default('openid'),
   DOCS_PROFILE: profileName.default('default'),
   DOCS_OIDC_RESOURCE: z.string().min(1).optional(),
+  DOCS_OIDC_CLIENT_SECRET: z.string().min(1).optional(),
 });
 
 // Validates and defaults DOCS_PROFILE alone, for commands (`logout`) that
@@ -74,5 +80,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     scope: parsed.data.DOCS_OIDC_SCOPE,
     profile: parsed.data.DOCS_PROFILE,
     resource: parsed.data.DOCS_OIDC_RESOURCE,
+    clientSecret: parsed.data.DOCS_OIDC_CLIENT_SECRET,
   };
 }
