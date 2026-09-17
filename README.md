@@ -264,7 +264,8 @@ deliberately never deletes them. Once it passes there, switch `DOCS_URL` over.
 | --- | --- |
 | Browser shows "invalid redirect URI" during login | The redirect URI is not registered with a wildcard port. See [step 1](#1-register-an-oauth-client). |
 | Introspection returns `{"active": false}` for a valid token | The provider refuses to introspect a token issued to a different client. Point `OIDC_RS_CLIENT_ID` at this client and set `DOCS_OIDC_CLIENT_SECRET`, or name the resource server as an audience via `DOCS_OIDC_RESOURCE`. |
-| Docs answers HTTP 400 with a bare Django "Bad Request" page | django-lasuite raises `SuspiciousOperation` when introspection fails, which Django renders as a 400. Introspect the token by hand to see the real reason. |
+| Docs answers HTTP 400 with a bare Django "Bad Request" page | django-lasuite raises `SuspiciousOperation` when introspection fails, which Django renders as a 400. Introspect the token by hand to see the real reason, and check the client authentication method below. |
+| Introspection works by hand but Docs still answers 400 | django-lasuite authenticates to the introspection endpoint with `client_secret_post`. A provider that accepts only HTTP Basic there, Pocket ID among them, sees no client at all. Needs a custom `OIDC_RS_BACKEND_CLASS` on the Docs side that overrides `get_introspection` to pass `auth=(client_id, client_secret)`. |
 | Login succeeds, but every tool call returns 403 | `DOCS_OIDC_CLIENT_ID` is not in `OIDC_RS_ALLOWED_AUDIENCES`, or `OIDC_RS_AUDIENCE_CLAIM` does not match the claim your provider sends. |
 | "The Docs instance does not permit the *X* action" | `X` is missing from the `EXTERNAL_API` allowlist. Run `doctor` for the exact value to set. |
 | Some tools never appear in the client at all | The startup probe got a 403 for them. Run `doctor`, fix the allowlist, restart the client. |
