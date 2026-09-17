@@ -155,6 +155,9 @@ function awaitCallback(
       if (config.resource) {
         authorizeParams.set('resource', config.resource);
       }
+      if (config.audience) {
+        authorizeParams.set('audience', config.audience);
+      }
 
       const authorizeUrl = new URL(authorizationEndpoint);
       authorizeUrl.search = authorizeParams.toString();

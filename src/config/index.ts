@@ -22,6 +22,12 @@ export interface Config {
   // Docs instance and this client are separate registrations at the provider
   // and the token has to name Docs as an audience for it to be introspectable.
   resource?: string;
+  // The Auth0-style `audience` request parameter. Kept separate from
+  // `resource` because the two are sent at different points of the flow: this
+  // one only at the authorization endpoint, where it binds the audience to the
+  // code, while RFC 8707's `resource` also rides the token and refresh
+  // requests. Providers honour one or the other, rarely both.
+  audience?: string;
 }
 
 const httpUrl = z
@@ -46,6 +52,7 @@ const schema = z.object({
   DOCS_PROFILE: profileName.default('default'),
   DOCS_OIDC_RESOURCE: z.string().min(1).optional(),
   DOCS_OIDC_CLIENT_SECRET: z.string().min(1).optional(),
+  DOCS_OIDC_AUDIENCE: z.string().min(1).optional(),
 });
 
 // Validates and defaults DOCS_PROFILE alone, for commands (`logout`) that
@@ -81,5 +88,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     profile: parsed.data.DOCS_PROFILE,
     resource: parsed.data.DOCS_OIDC_RESOURCE,
     clientSecret: parsed.data.DOCS_OIDC_CLIENT_SECRET,
+    audience: parsed.data.DOCS_OIDC_AUDIENCE,
   };
 }

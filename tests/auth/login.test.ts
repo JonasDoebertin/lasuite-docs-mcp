@@ -188,6 +188,55 @@ describe('runLogin resource indicator', () => {
   });
 });
 
+describe('runLogin audience parameter', () => {
+  it('asks for the configured audience at the authorization endpoint only', async () => {
+    // The Auth0-style `audience` parameter is defined for the authorization
+    // request, where it binds the audience to the code. Repeating it on the
+    // token request buys nothing and risks an invalid_request from providers
+    // that reject unknown parameters there. RFC 8707's `resource` is the
+    // opposite case and is sent on both, which is why these are separate
+    // settings rather than one.
+    let tokenBody = '';
+    stubFetch((url, init) => {
+      if (url.endsWith('/.well-known/openid-configuration')) {
+        return json({
+          authorization_endpoint: 'https://idp.example.org/auth',
+          token_endpoint: 'https://idp.example.org/token',
+        });
+      }
+      if (url === 'https://idp.example.org/token') {
+        tokenBody = String(init?.body ?? '');
+        return json({ access_token: 'at', refresh_token: 'rt', expires_in: 300 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+
+    const runLoginPromise = runLogin({ ...config, audience: 'https://docs.example.org' });
+    const { state, redirectUri } = await waitForAuthorizeUrl();
+
+    expect(new URL(capturedBrowserUrl ?? '').searchParams.get('audience')).toBe(
+      'https://docs.example.org',
+    );
+
+    await requestCallback(`${redirectUri.origin}/callback?code=abc&state=${state}`);
+    await runLoginPromise;
+
+    expect(new URLSearchParams(tokenBody).has('audience')).toBe(false);
+  });
+
+  it('omits the audience parameter when none is configured', async () => {
+    stubDiscoveryAndTokenEndpoint();
+
+    const runLoginPromise = runLogin(config);
+    const { state, redirectUri } = await waitForAuthorizeUrl();
+
+    expect(new URL(capturedBrowserUrl ?? '').searchParams.has('audience')).toBe(false);
+
+    await requestCallback(`${redirectUri.origin}/callback?code=abc&state=${state}`);
+    await runLoginPromise;
+  });
+});
+
 describe('runLogin client authentication', () => {
   function stubCapturingTokenBody(sink: { body: string }) {
     stubFetch((url, init) => {

@@ -99,10 +99,22 @@ allow this; in Keycloak, `http://127.0.0.1:*/callback` is accepted verbatim.
 >   the *same* credentials as `OIDC_RS_CLIENT_ID` / `OIDC_RS_CLIENT_SECRET`. The
 >   resource server is then the same client as the token holder. The cost is a
 >   secret on every machine that runs this tool.
-> - **The token must name the resource server as an audience.** Register the Docs
->   instance as an API or resource at the provider, grant this client access, and
->   set `DOCS_OIDC_RESOURCE` to that identifier. The login then asks for that
->   audience (RFC 8707) on the authorization and the refresh request.
+> - **The token must carry an audience Docs allows.** Providers offer three
+>   different mechanisms, and most support exactly one of them:
+>   1. A claim mapper on the provider side that writes the audience into a claim
+>     of its own. Nothing to configure here: point Docs'
+>     `OIDC_RS_AUDIENCE_CLAIM` at that claim. Keycloak and Authentik work this way.
+>   2. `DOCS_OIDC_AUDIENCE`, the Auth0-style `audience` request parameter, sent on
+>     the authorization request.
+>   3. `DOCS_OIDC_RESOURCE`, the RFC 8707 `resource` indicator, sent on the
+>     authorization, token and refresh requests. Usually requires registering the
+>     Docs instance as an API at the provider first.
+> - **The token's issuer must match Docs exactly.** django-lasuite validates any
+>   `iss` in the introspection response against Docs' own `OIDC_OP_URL`. A
+>   provider that mints a separate issuer per application, as Authentik does by
+>   default, gives this client a different `iss` than the one Docs trusts, and
+>   every call fails. Put both on the same issuer. Providers that omit `iss` from
+>   the introspection response, Pocket ID among them, are unaffected.
 
 > [!TIP]
 > Consider requesting `offline_access` as well, via
@@ -195,6 +207,7 @@ export DOCS_OIDC_CLIENT_ID=lasuite-docs-mcp
 | `DOCS_OIDC_CLIENT_ID` | Yes | | The public client from step 1. |
 | `DOCS_OIDC_SCOPE` | No | `openid` | See the note on `offline_access` above. |
 | `DOCS_OIDC_CLIENT_SECRET` | No | | Only when the provider forces a confidential client. See the note in step 1. |
+| `DOCS_OIDC_AUDIENCE` | No | | Auth0-style `audience` parameter. See the note in step 1. |
 | `DOCS_OIDC_RESOURCE` | No | | RFC 8707 resource indicator. See the note in step 1. |
 | `DOCS_PROFILE` | No | `default` | Keeps several instances' credentials side by side. |
 
@@ -266,6 +279,7 @@ deliberately never deletes them. Once it passes there, switch `DOCS_URL` over.
 | Introspection returns `{"active": false}` for a valid token | The provider refuses to introspect a token issued to a different client. Point `OIDC_RS_CLIENT_ID` at this client and set `DOCS_OIDC_CLIENT_SECRET`, or name the resource server as an audience via `DOCS_OIDC_RESOURCE`. |
 | Docs answers HTTP 400 with a bare Django "Bad Request" page | django-lasuite raises `SuspiciousOperation` when introspection fails, which Django renders as a 400. Introspect the token by hand to see the real reason, and check the client authentication method below. |
 | Introspection works by hand but Docs still answers 400 | django-lasuite authenticates to the introspection endpoint with `client_secret_post`. A provider that accepts only HTTP Basic there, Pocket ID among them, sees no client at all. Needs a custom `OIDC_RS_BACKEND_CLASS` on the Docs side that overrides `get_introspection` to pass `auth=(client_id, client_secret)`. |
+| Docs logs `InvalidClaimError: iss`, or rejects every token from an otherwise healthy provider | The issuer in the introspection response differs from Docs' `OIDC_OP_URL`. Providers with a per-application issuer need both this client and Docs on the same one. |
 | Login succeeds, but every tool call returns 403 | `DOCS_OIDC_CLIENT_ID` is not in `OIDC_RS_ALLOWED_AUDIENCES`, or `OIDC_RS_AUDIENCE_CLAIM` does not match the claim your provider sends. |
 | "The Docs instance does not permit the *X* action" | `X` is missing from the `EXTERNAL_API` allowlist. Run `doctor` for the exact value to set. |
 | Some tools never appear in the client at all | The startup probe got a 403 for them. Run `doctor`, fix the allowlist, restart the client. |
